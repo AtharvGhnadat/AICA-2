@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=EMO AI Companion
+Comment=AI Robot Face Companion
+Exec=/home/maia-main/emo-ai-companion (1)/launch.sh
+Icon=/home/maia-main/emo-ai-companion (1)/public/icon.png
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true
+StartupNotify=false

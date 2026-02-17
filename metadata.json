@@ -1,0 +1,7 @@
+{
+  "name": "EMO AI Companion",
+  "description": "A high-fidelity AI companion interface with expressive eyes and real-time voice interaction using Gemini 2.5 Native Audio.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
