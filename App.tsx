@@ -91,7 +91,7 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 
 // ─── Persistent Storage Helpers ──────────────────────────────────────────────
 
-const STORAGE_KEY_NAME = 'emo_robot_name';
+const STORAGE_KEY_NAME = 'emo_robot_name_v2';
 
 function loadSavedName(): string {
   try {
@@ -112,7 +112,8 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => ({
     ...DEFAULT_SETTINGS,
-    deviceName: loadSavedName(),
+    deviceName: 'Aica',
+    voiceName: 'Kore',
   }));
   const [transcriptions, setTranscriptions] = useState<TranscriptionItem[]>([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -310,7 +311,7 @@ const App: React.FC = () => {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } },
           },
-          systemInstruction: `You are ${currentSettings.deviceName}, an omni-directional robot by Atharv, Siddhant, Abhilesh (Professor. Vikramsinh Saste). Reply in 1-2 sentences, match user's language (Marathi/Hindi/English). Be concise and natural. You have google search capability, use it when asked about current events, facts, or anything you need to look up.`,
+          systemInstruction: `You are Aica, a friendly female AI companion robot built by Atharv, Siddhant, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly female voice. Reply in 1-2 sentences, match user's language (Marathi/Hindi/English). Be concise and natural. Your name is Aica. You have google search capability, use it when asked about current events, facts, or anything you need to look up.`,
           tools: [{ googleSearch: {} }],
         },
         callbacks: {

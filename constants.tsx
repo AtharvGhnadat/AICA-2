@@ -2,11 +2,11 @@
 import { Settings } from './types';
 
 export const DEFAULT_SETTINGS: Settings = {
-  deviceName: 'Swastik',
+  deviceName: 'Aica',
   volume: 80,
   sensitivity: 50,
   eyeColor: '#00f2ff', // Neon Cyan
-  voiceName: 'Puck', // Male sounding voice
+  voiceName: 'Kore', // Female-sounding voice
 };
 
 export const AUDIO_SAMPLE_RATE_INPUT = 16000;
