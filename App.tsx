@@ -207,15 +207,15 @@ const App: React.FC = () => {
   const endSession = useCallback(() => {
     clearTimers();
     if (sessionRef.current) {
-      try { sessionRef.current.close(); } catch (_) {}
+      try { sessionRef.current.close(); } catch (_) { }
       sessionRef.current = null;
     }
     if (workletNodeRef.current) {
-      try { workletNodeRef.current.disconnect(); } catch (_) {}
+      try { workletNodeRef.current.disconnect(); } catch (_) { }
       workletNodeRef.current = null;
     }
     if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.disconnect(); } catch (_) {}
+      try { sourceNodeRef.current.disconnect(); } catch (_) { }
       sourceNodeRef.current = null;
     }
     if (streamRef.current) {
@@ -243,7 +243,7 @@ const App: React.FC = () => {
         startSession();
       }
     }, delay);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const startSession = useCallback(async () => {
@@ -270,8 +270,12 @@ const App: React.FC = () => {
       // ── Resume AudioContexts (created synchronously in gesture handler) ──
       // AudioContexts are created in handleInteraction() during an active
       // user gesture to satisfy Chrome's autoplay policy.
-      if (inputContextRef.current?.state === 'suspended') await inputContextRef.current.resume();
-      if (outputContextRef.current?.state === 'suspended') await outputContextRef.current.resume();
+      try {
+        if (inputContextRef.current?.state === 'suspended') await inputContextRef.current.resume();
+        if (outputContextRef.current?.state === 'suspended') await outputContextRef.current.resume();
+      } catch (err) {
+        console.warn('Failed to resume AudioContexts:', err);
+      }
 
       // Fallback: if somehow contexts don't exist yet (e.g. auto-reconnect),
       // create them here. May trigger autoplay warning but is a safety net.
@@ -290,6 +294,10 @@ const App: React.FC = () => {
       // ── Mic stream — no software noise cancellation ────────────────
       // The hardware mic has built-in noise cancellation.
       // Disabling browser processing removes latency and avoids interference.
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Cannot access microphone. Must use localhost or HTTPS.");
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
@@ -474,7 +482,7 @@ const App: React.FC = () => {
       setStatus('error');
       scheduleReconnect();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endSession, startThinkingTimeout, stopActiveAudio, transitionToListening]);
 
   // ─── Cleanup on unmount ─────────────────────────────────────────────────
@@ -484,38 +492,34 @@ const App: React.FC = () => {
       clearTimers();
       endSession();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Auto-start: connect to Gemini immediately on launch ──────────────
+  // ─── Auto-start: we wait for user interaction instead of starting on launch ──────────────
   useEffect(() => {
-    // Create AudioContexts immediately
-    if (!inputContextRef.current || inputContextRef.current.state === 'closed') {
-      inputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({
-        latencyHint: 'interactive',
-      });
-    }
-    if (!outputContextRef.current || outputContextRef.current.state === 'closed') {
-      outputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({
-        sampleRate: AUDIO_SAMPLE_RATE_OUTPUT,
-        latencyHint: 'interactive',
-      });
-    }
-
-    // Start session directly
-    startSession();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // We intentionally leave it in the "idle" state so the user must click to start.
+    // AudioContext needs a user gesture to start.
+    setStatus('idle');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Tap to resume / reconnect ─────────────────────────────────────────
+  // ─── Tap to resume / reconnect / start ─────────────────────────────────────────
 
   const handleInteraction = useCallback(() => {
+    // Create AudioContexts safely inside a user gesture
+    if (!inputContextRef.current || inputContextRef.current.state === 'closed') {
+      inputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({ latencyHint: 'interactive' });
+    }
+    if (!outputContextRef.current || outputContextRef.current.state === 'closed') {
+      outputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({ sampleRate: AUDIO_SAMPLE_RATE_OUTPUT, latencyHint: 'interactive' });
+    }
+
     // Resume any suspended AudioContexts on user gesture
     if (inputContextRef.current?.state === 'suspended') {
-      inputContextRef.current.resume().catch(() => {});
+      inputContextRef.current.resume().catch(() => { });
     }
     if (outputContextRef.current?.state === 'suspended') {
-      outputContextRef.current.resume().catch(() => {});
+      outputContextRef.current.resume().catch(() => { });
     }
 
     // Reconnect if disconnected
@@ -580,7 +584,7 @@ const App: React.FC = () => {
 
   // ─── Render ─────────────────────────────────────────────────────────────
 
-  const statusLabel = status === 'listening' ? 'LISTENING' : status === 'speaking' ? 'SPEAKING' : status === 'thinking' ? 'PROCESSING' : status === 'error' ? 'ERROR' : 'STARTING';
+  const statusLabel = status === 'idle' ? 'TAP TO START' : status === 'listening' ? 'LISTENING' : status === 'speaking' ? 'SPEAKING' : status === 'thinking' ? 'PROCESSING' : status === 'error' ? 'ERROR' : 'STARTING';
   const statusDotColor = status === 'listening' ? 'bg-emerald-400' : status === 'speaking' ? 'bg-cyan-400' : status === 'thinking' ? 'bg-amber-400' : status === 'error' ? 'bg-red-400' : 'bg-zinc-600';
   const statusGlow = status === 'listening' ? 'shadow-[0_0_6px_rgba(52,211,153,0.8)]' : status === 'speaking' ? 'shadow-[0_0_6px_rgba(34,211,238,0.8)]' : '';
 
