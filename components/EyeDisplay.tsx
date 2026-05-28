@@ -29,14 +29,14 @@ const SPEAK_SEQUENCE = [
   MOUTH_SHAPES.speak2,
 ];
 
-// ─── Eye geometry constants (all for a single massive eye in 800×600 viewBox) ────────
-const CX = 400;   // Eye center X
-const CY = 300;   // Eye center Y
-const EYE_RX = 280; // Eye white ellipse X radius (massive)
-const EYE_RY = 180;  // Eye white ellipse Y radius
-const IRIS_R = 90;   // Iris radius
-const PUPIL_R = 40;  // Pupil radius
-const LIMBAL_R = 94; // Limbal ring (dark ring around iris)
+// ─── Eye geometry constants (all for a single eye in 260×220 viewBox) ────────
+const CX = 130;   // Eye center X
+const CY = 110;   // Eye center Y
+const EYE_RX = 110; // Eye white ellipse X radius (huge for 7" display)
+const EYE_RY = 80;  // Eye white ellipse Y radius
+const IRIS_R = 42;   // Iris radius
+const PUPIL_R = 18;  // Pupil radius
+const LIMBAL_R = 44; // Limbal ring (dark ring around iris)
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -136,36 +136,59 @@ const EyeDisplay: React.FC<FaceDisplayProps> = ({ status, color }) => {
   const lidCloseFactor = blinkPhase * 0.97;
   const lidOpenRY = EYE_RY * (1 - lidCloseFactor);
 
-  // ─── Render single massive eye ────────────────────────────
-  const renderEye = () => {
-    const px = pupilOffset.x;
+  // ─── Render single eye (large, human-like) ────────────────────────────
+  const renderEye = (isRight: boolean) => {
+    const px = pupilOffset.x * (isRight ? -1 : 1);
     const py = pupilOffset.y;
+    const side = isRight ? 'r' : 'l';
 
     return (
       <svg
-        width="100%"
-        height="100%"
-        viewBox="0 0 800 600"
-        className="overflow-visible absolute inset-0 m-auto max-w-[800px] max-h-[600px] w-full h-full"
+        width="260"
+        height="220"
+        viewBox="0 0 260 220"
+        className="overflow-visible"
+        style={{ minWidth: '260px', minHeight: '220px' }}
       >
         <defs>
           {/* Sclera gradient — slightly warm white with vein-like edges */}
-          <radialGradient id={`sclera`} cx="50%" cy="48%" r="55%">
+          <radialGradient id={`sclera-${side}`} cx="50%" cy="48%" r="55%">
             <stop offset="0%" stopColor="#f8f6f4" />
             <stop offset="75%" stopColor="#f0ece8" />
             <stop offset="100%" stopColor="#e0d8d0" />
           </radialGradient>
 
           {/* Iris gradient — multi-stop for depth */}
-          <radialGradient id={`iris`} cx="48%" cy="42%" r="50%">
+          <radialGradient id={`iris-${side}`} cx="48%" cy="42%" r="50%">
             <stop offset="0%" stopColor={eyeColor} stopOpacity="0.7" />
             <stop offset="30%" stopColor={eyeColor} stopOpacity="0.95" />
             <stop offset="70%" stopColor={eyeColor} stopOpacity="1" />
             <stop offset="100%" stopColor={isError ? '#7f1d1d' : `${eyeColor}99`} />
           </radialGradient>
 
+          {/* Iris texture — radial lines pattern */}
+          <pattern id={`iris-tex-${side}`} patternUnits="objectBoundingBox" width="1" height="1">
+            <rect width="100" height="100" fill={`url(#iris-${side})`} />
+          </pattern>
+
+          {/* Inner shadow on sclera */}
+          <filter id={`inner-shadow-${side}`}>
+            <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur" />
+            <feOffset dy="4" result="offset" />
+            <feComposite in="SourceGraphic" in2="offset" operator="over" />
+          </filter>
+
+          {/* Glow for the iris */}
+          <filter id={`iris-glow-${side}`} x="-80%" y="-80%" width="260%" height="260%">
+            <feGaussianBlur stdDeviation="8" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+
           {/* Eye-shape clip path — the "eyelid opening" */}
-          <clipPath id={`eye-clip`}>
+          <clipPath id={`eye-clip-${side}`}>
             <ellipse
               cx={CX}
               cy={CY}
@@ -174,42 +197,16 @@ const EyeDisplay: React.FC<FaceDisplayProps> = ({ status, color }) => {
               style={{ transition: 'ry 0.12s cubic-bezier(0.4, 0, 0.2, 1)' }}
             />
           </clipPath>
-
-          {/* Glow filter for speaking rings */}
-          <filter id="ring-glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="15" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
         </defs>
-
-        {/* ═══ Speaking Rings (Audio Ripple Effect) ═══ */}
-        {status === 'speaking' && [1.2, 1.5, 1.8].map((scale, i) => (
-          <ellipse
-            key={`ring-${i}`}
-            cx={CX} cy={CY}
-            rx={EYE_RX * scale} ry={EYE_RY * scale}
-            fill="none"
-            stroke={eyeColor}
-            strokeWidth="3"
-            opacity={0}
-            filter="url(#ring-glow)"
-            style={{
-              animation: `ripple 2s infinite ease-out ${i * 0.6}s`
-            }}
-          />
-        ))}
 
         {/* ═══ Outer glow ═══ */}
         <ellipse
-          cx={CX} cy={CY} rx={EYE_RX + 20} ry={EYE_RY + 20}
+          cx={CX} cy={CY} rx={EYE_RX + 12} ry={EYE_RY + 12}
           fill="none"
           stroke={eyeColor}
-          strokeWidth="2"
-          opacity={glowIntensity * 0.3}
-          style={{ filter: `blur(20px)` }}
+          strokeWidth="1"
+          opacity={glowIntensity * 0.2}
+          style={{ filter: `blur(10px)` }}
         />
 
         {/* ═══ Eye outline (lid border) ═══ */}
@@ -217,50 +214,51 @@ const EyeDisplay: React.FC<FaceDisplayProps> = ({ status, color }) => {
           cx={CX} cy={CY} rx={EYE_RX} ry={EYE_RY}
           fill="none"
           stroke={eyeColor}
-          strokeWidth="6"
+          strokeWidth="3.5"
           opacity="0.6"
           style={{
-            filter: `drop-shadow(0 0 ${20 * glowIntensity}px ${eyeColor})`,
+            filter: `drop-shadow(0 0 ${16 * glowIntensity}px ${eyeColor})`,
           }}
         />
 
         {/* ═══ Clipped eye contents (hidden by eyelid when blinking) ═══ */}
-        <g clipPath={`url(#eye-clip)`}>
+        <g clipPath={`url(#eye-clip-${side})`}>
 
           {/* Sclera (white of the eye) */}
           <ellipse
-            cx={CX} cy={CY} rx={EYE_RX - 4} ry={EYE_RY - 4}
-            fill={`url(#sclera)`}
+            cx={CX} cy={CY} rx={EYE_RX - 3} ry={EYE_RY - 3}
+            fill={`url(#sclera-${side})`}
             opacity="0.15"
           />
 
           {/* Subtle blood vessel lines at edges */}
           <ellipse
-            cx={CX} cy={CY} rx={EYE_RX - 8} ry={EYE_RY - 8}
+            cx={CX} cy={CY} rx={EYE_RX - 6} ry={EYE_RY - 6}
             fill="none"
             stroke={`${eyeColor}15`}
-            strokeWidth="30"
+            strokeWidth="20"
             opacity="0.3"
           />
 
           {/* ─── Limbal ring (dark ring around iris) ─── */}
           <circle
-            cx={CX + px * 2.5}
-            cy={CY + py * 2.5}
+            cx={CX + px * 1.3}
+            cy={CY + py * 1.3}
             r={LIMBAL_R * pupilScale}
             fill="none"
             stroke={isError ? '#991b1b' : `${eyeColor}66`}
-            strokeWidth="5"
+            strokeWidth="3"
             opacity="0.7"
             style={{ transition: 'cx 0.35s ease-out, cy 0.35s ease-out, r 0.4s ease' }}
           />
 
           {/* ─── Iris ─── */}
           <circle
-            cx={CX + px * 2.5}
-            cy={CY + py * 2.5}
+            cx={CX + px * 1.3}
+            cy={CY + py * 1.3}
             r={IRIS_R * pupilScale}
-            fill={`url(#iris)`}
+            fill={`url(#iris-${side})`}
+            filter={`url(#iris-glow-${side})`}
             style={{ transition: 'cx 0.35s ease-out, cy 0.35s ease-out, r 0.4s ease' }}
           />
 
@@ -268,12 +266,12 @@ const EyeDisplay: React.FC<FaceDisplayProps> = ({ status, color }) => {
           {[0.45, 0.65, 0.82].map((rFactor, i) => (
             <circle
               key={i}
-              cx={CX + px * 2.5}
-              cy={CY + py * 2.5}
+              cx={CX + px * 1.3}
+              cy={CY + py * 1.3}
               r={IRIS_R * pupilScale * rFactor}
               fill="none"
               stroke={eyeColor}
-              strokeWidth="1"
+              strokeWidth="0.5"
               opacity={0.2 + i * 0.1}
               style={{ transition: 'cx 0.35s ease-out, cy 0.35s ease-out, r 0.4s ease' }}
             />
