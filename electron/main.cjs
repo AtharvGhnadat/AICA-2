@@ -18,6 +18,9 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 // Disable unnecessary features to save resources
 app.commandLine.appendSwitch('disable-software-rasterizer');
 
+// Ignore certificate errors for our local HTTPS development server
+app.commandLine.appendSwitch('ignore-certificate-errors');
+
 let mainWindow;
 
 // If a second instance tries to open, focus the existing window
@@ -71,7 +74,7 @@ function createWindow() {
   const isDev = !app.isPackaged;
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000');
+    mainWindow.loadURL('https://localhost:3000');
     // Uncomment to open DevTools in dev mode:
     // mainWindow.webContents.openDevTools();
   } else {
