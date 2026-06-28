@@ -237,19 +237,7 @@ const App: React.FC = () => {
       setVisualContext({ ...result, active: true });
       setVisualStatus('success');
 
-      // Inform the model about the visual context shown on the screen
-      try {
-        const contextMessage = `[System context: The image related to "${result.title || result.searchQuery}" has now successfully loaded and appeared on the user's screen. You should now speak naturally like a human teacher and say something like "As you can see in this image..." and briefly explain what they are seeing in an engaging way.]`;
-        if (sessionRef.current && sessionRef.current.send) {
-          sessionRef.current.send({
-            clientContent: {
-              turns: [{ role: 'user', parts: [{ text: contextMessage }] }]
-            }
-          });
-        }
-      } catch (err) {
-        console.warn('Failed to send visual context to model:', err);
-      }
+      // No need to inject clientContent anymore, we return the context directly in the tool response because it's so fast now!
       return true;
 
     } else {
@@ -364,14 +352,14 @@ const App: React.FC = () => {
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } } },
-          systemInstruction: `You are ${currentSettings.deviceName}, a friendly male AI companion robot built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice. Reply in 1-2 sentences, match user's language (Marathi/Hindi/English). Be concise and natural. Your name is ${currentSettings.deviceName}. When the user asks for a picture, diagram, or asks an educational question where an image would be helpful, use the show_visual_context tool to search for an image. When you call this tool, it will return immediately saying the search has started. You should then say "Let me pull that up for you" or similar. A few seconds later, the system will send you a message saying the image has appeared, at which point you should say "Here is the image" and explain it.`,
+          systemInstruction: `You are ${currentSettings.deviceName}, a friendly male AI companion robot built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice. Reply in 1-2 sentences, match user's language (Marathi/Hindi/English). Be concise and natural. Your name is ${currentSettings.deviceName}. When the user asks for a picture, diagram, or asks an educational question where an image would be helpful, use the show_visual_context tool to search for an image. Wait for the tool to return, and then you will speak naturally like a human teacher explaining the image that just appeared on the screen.`,
           tools: [
             { googleSearch: {} },
             {
               functionDeclarations: [
                 {
                   name: "show_visual_context",
-                  description: "Initiates a search for a visual image panel to display on the screen. Call this tool when the user asks for a picture or educational diagram. After calling this, acknowledge to the user that you are finding the image. You will receive a follow-up system message when the image actually appears.",
+                  description: "Initiates a search for a visual image panel to display on the screen. Call this tool when the user asks for a picture or educational diagram. Wait for the tool response, and then speak naturally to explain the image.",
                   parameters: {
                     type: "OBJECT",
                     properties: {
@@ -443,24 +431,22 @@ const App: React.FC = () => {
                     const args = call.args as { topic: string };
                     
                     const handleSync = async () => {
-                      // Immediately respond so the AI can say "Let me pull that up for you"
+                      if (args.topic) {
+                        // Wait for the ultra-fast search to complete
+                        await triggerImageSearch(args.topic).catch(console.error);
+                      }
+                      
                       try {
                         sessionRef.current?.send({
                           toolResponse: {
                             functionResponses: [{
                               id: call.id,
                               name: call.name,
-                              response: { result: "Search initiated. Please acknowledge this to the user." }
+                              response: { result: "Image panel is now visible on screen. You should now speak naturally like a human teacher and say something like 'As you can see in this image...' and briefly explain what they are seeing in an engaging way." }
                             }]
                           }
                         });
                       } catch (e) {}
-
-                      if (args.topic) {
-                        // Let the image search run in the background. 
-                        // Once it's done, it will inject a user turn telling the model the image is visible.
-                        triggerImageSearch(args.topic).catch(console.error);
-                      }
                     };
                     handleSync();
                   } else if (call.name === 'close_visual_context') {
