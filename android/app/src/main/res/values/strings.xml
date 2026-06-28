@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">EmoAI</string>
+    <string name="title_activity_main">EmoAI</string>
+    <string name="package_name">com.emo.ai</string>
+    <string name="custom_url_scheme">com.emo.ai</string>
+</resources>

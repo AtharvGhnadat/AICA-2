@@ -11,7 +11,20 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0', // Listen on all local IPs
-      https: true
+      https: true,
+      watch: {
+        ignored: ['**/android/**', '**/dist/**', '**/electron/**']
+      },
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:5000',
+          changeOrigin: true,
+          secure: false,
+        }
+      }
+    },
+    optimizeDeps: {
+      exclude: ['android']
     },
     plugins: [react(), tailwindcss(), basicSsl()],
     define: {
