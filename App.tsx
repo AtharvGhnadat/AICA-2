@@ -442,13 +442,12 @@ const App: React.FC = () => {
                   if (call.name === 'show_visual_context') {
                     const args = call.args as { topic: string };
                     
-                    const handleSync = () => {
+                    const handleSync = async () => {
                       if (args.topic) {
-                        // Fire off the image search asynchronously (do not await)
-                        triggerImageSearch(args.topic).catch(console.error);
+                        // Wait for the image search to complete before responding to the model
+                        await triggerImageSearch(args.topic).catch(console.error);
                       }
                       
-                      // Immediately respond so the AI's voice is lightning fast
                       try {
                         sessionRef.current?.send({
                           toolResponse: {
