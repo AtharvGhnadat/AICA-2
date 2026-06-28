@@ -40,9 +40,11 @@ export const visualContextService = {
       .trim();
     rawTitle = rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1);
     
-    // Fire both Wikipedia and Serper requests concurrently
+    // Fire Wikipedia and Serper requests concurrently
     const wikiPromise = (async () => {
       const wikiTitle = encodeURIComponent(rawTitle.replace(/ /g, '_'));
+      // Prevent 404 from showing in console by checking if page exists first if possible,
+      // but fetch will always log 404 on network tab. We can just gracefully catch.
       const wikiResponse = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${wikiTitle}`);
       if (wikiResponse.ok) {
         const wikiData = await wikiResponse.json();
@@ -75,7 +77,10 @@ export const visualContextService = {
         body: JSON.stringify({ q: query })
       });
 
-      if (!response.ok) throw new Error('Serper request failed');
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown Error');
+        throw new Error(`Serper request failed: ${response.status} - ${errorText}`);
+      }
 
       const data = await response.json();
       const results = data.images;
@@ -95,10 +100,37 @@ export const visualContextService = {
         active: true
       } as Partial<VisualContext>;
     })();
+    
+    // Add a highly-reliable fallback: Wikimedia Action API (Broad search)
+    const wikimediaPromise = (async () => {
+      const query = enhanceSearchQuery(trimmedQ);
+      const wmUrl = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=1&prop=pageimages|extracts&exintro=1&explaintext=1&piprop=original|thumbnail&pithumbsize=600&format=json&origin=*`;
+      const wmResponse = await fetch(wmUrl);
+      if (wmResponse.ok) {
+        const data = await wmResponse.json();
+        const pages = data.query?.pages;
+        if (pages) {
+          const firstPageId = Object.keys(pages)[0];
+          const page = pages[firstPageId];
+          if (page && page.original?.source) {
+             return {
+              title: page.title || rawTitle,
+              explanation: page.extract || `Here is an educational visual representation related to "${rawTitle}".`,
+              imageUrl: page.original.source,
+              thumbnailUrl: page.thumbnail?.source || page.original.source,
+              searchQuery: query,
+              imageSource: 'wikimedia',
+              active: true
+            } as Partial<VisualContext>;
+          }
+        }
+      }
+      throw new Error('Wikimedia fallback failed');
+    })();
 
     try {
       // Return whichever resolves successfully first! (Ultra-fast)
-      const result = await Promise.any([wikiPromise, serperPromise]);
+      const result = await Promise.any([wikiPromise, serperPromise, wikimediaPromise]);
       
       if (searchCache.size >= 10) {
         const firstKey = searchCache.keys().next().value;
@@ -107,8 +139,12 @@ export const visualContextService = {
       searchCache.set(trimmedQ, result);
       return result;
 
-    } catch (error) {
-      console.error('All image search providers failed:', error);
+    } catch (error: any) {
+      if (error instanceof AggregateError) {
+        console.error('All image search providers failed. Errors:', error.errors);
+      } else {
+        console.error('Unexpected error in image search:', error);
+      }
       return null;
     }
   }
