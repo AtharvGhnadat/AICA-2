@@ -12,31 +12,6 @@ interface VisualContextPanelProps {
   className?: string;
 }
 
-const TypewriterText: React.FC<{ text: string; delay?: number; className?: string; start?: boolean }> = ({ text, delay = 15, className, start = true }) => {
-  const [displayedText, setDisplayedText] = React.useState('');
-
-  React.useEffect(() => {
-    if (!start) {
-      setDisplayedText('');
-      return;
-    }
-    
-    setDisplayedText('');
-    let currentIndex = 0;
-    const interval = setInterval(() => {
-      if (currentIndex <= text.length) {
-        setDisplayedText(text.slice(0, currentIndex));
-        currentIndex++;
-      } else {
-        clearInterval(interval);
-      }
-    }, delay);
-    return () => clearInterval(interval);
-  }, [text, delay, start]);
-
-  return <span className={className}>{displayedText}</span>;
-};
-
 export const VisualContextPanel: React.FC<VisualContextPanelProps> = ({ 
   context, 
   status, 
@@ -118,13 +93,13 @@ export const VisualContextPanel: React.FC<VisualContextPanelProps> = ({
 
         <div className="flex flex-col gap-4 shrink-0 pb-12">
           {context?.title && (
-            <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-tight">
-              <TypewriterText text={context.title} delay={50} start={imageLoaded} />
+            <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-tight transition-opacity duration-700 opacity-100">
+              {context.title}
             </h2>
           )}
           {context?.explanation && (
-            <p className="text-slate-300 text-xl md:text-2xl leading-relaxed font-light">
-              <TypewriterText text={context.explanation} delay={30} start={imageLoaded} />
+            <p className="text-slate-300 text-xl md:text-2xl leading-relaxed font-light transition-opacity duration-700 opacity-100">
+              {context.explanation}
             </p>
           )}
         </div>
