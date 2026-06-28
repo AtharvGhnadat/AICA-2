@@ -229,7 +229,7 @@ const App: React.FC = () => {
 
   // ─── Visual Context Logic ────────────────────────────────────────────────
 
-  const triggerImageSearch = async (text: string): Promise<boolean> => {
+  const triggerImageSearch = async (text: string): Promise<Partial<VisualContext> | null> => {
     setVisualStatus('loading');
     setVisualContext({ active: true, searchQuery: text, imageSource: 'none', title: '', explanation: '', imageUrl: '' });
     const result = await visualContextService.searchImage(text, settingsRef.current.serperApiKey);
@@ -238,7 +238,7 @@ const App: React.FC = () => {
       setVisualStatus('success');
 
       // No need to inject clientContent anymore, we return the context directly in the tool response because it's so fast now!
-      return true;
+      return result;
 
     } else {
       setVisualStatus('error');
@@ -246,7 +246,7 @@ const App: React.FC = () => {
         setVisualContext(prev => prev ? { ...prev, active: false } : null);
         setVisualStatus('idle');
       }, 3000);
-      return false;
+      return null;
     }
   };
 
@@ -431,18 +431,23 @@ const App: React.FC = () => {
                     const args = call.args as { topic: string };
                     
                     const handleSync = async () => {
+                      let searchResult: Partial<VisualContext> | null | void = null;
                       if (args.topic) {
                         // Wait for the ultra-fast search to complete
-                        await triggerImageSearch(args.topic).catch(console.error);
+                        searchResult = await triggerImageSearch(args.topic).catch(console.error);
                       }
                       
+                      const responseText = searchResult 
+                        ? `Image panel is now visible on screen. The image displayed is titled "${searchResult.title}". Background info: ${searchResult.explanation}. You must now speak naturally like a human teacher and say "As you can see in this image..." and explain it using this background info.`
+                        : `Failed to find an image for ${args.topic}. Apologize to the user and explain you couldn't find a good visual.`;
+
                       try {
                         sessionRef.current?.send({
                           toolResponse: {
                             functionResponses: [{
                               id: call.id,
                               name: call.name,
-                              response: { result: "Image panel is now visible on screen. You should now speak naturally like a human teacher and say something like 'As you can see in this image...' and briefly explain what they are seeing in an engaging way." }
+                              response: { result: responseText }
                             }]
                           }
                         });
