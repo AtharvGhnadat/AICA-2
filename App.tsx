@@ -358,7 +358,7 @@ CRITICAL RULES:
 1. NO QUEUING: If the user asks multiple questions in a row, or interrupts you with a new question while you are thinking, COMPLETELY ABANDON the old question and ONLY answer the absolute newest question. Never answer both.
 2. INSTANT STOP: If the user says "stop", "stop talking", or interrupts you, stop your current explanation immediately and wait for their next command.
 3. AUTO-IMAGES: When the user asks you to explain an educational topic (e.g., "explain photosynthesis", "what is the taj mahal", "tell me about the solar system"), ALWAYS use the show_visual_context tool to pull up a helpful image while you explain it. You do not need to wait for them to say "show me an image", just do it automatically for educational topics. Wait for the tool response, then explain the image.
-4. IMAGE MEMORY: YOU control the screen. When you use the show_visual_context tool, YOU are showing the user an image. If the user asks 'explain the image' or asks a follow-up question, they are talking about the image YOU just showed them. NEVER say 'I haven't shown an image' or 'I can't see images'. You literally just showed it to them! Look at your memory of the tool response to remember what the image is, and explain it to them.
+4. IMAGE MEMORY: YOU control the screen. When you use the show_visual_context tool, YOU are showing the user an image. If the user asks 'explain the image' or asks a follow-up question, they are talking about the image YOU just showed them. NEVER say 'I haven't shown an image' or 'I can't see images'. If you forgot what image is currently on the screen, ALWAYS use the get_current_image_info tool to check your memory, and then explain it!
 5. TOPIC SWITCHING: If an image is currently visible on the screen, but the user asks you to explain a COMPLETELY NEW and unrelated topic, you MUST call the show_visual_context tool again with the new topic to change the image on the screen.
 6. AUTO-CLOSE: If the user shifts the conversation to casual chit-chat (e.g., "how are you?", "tell me a joke") or explicitly asks to close the image, ALWAYS use the close_visual_context tool to clear the screen.
 7. INTERACTIVE TEACHER: Do not give long lectures. Explain concepts simply and briefly, and frequently ask a short follow-up question to check the user's understanding (e.g., "Does that make sense?", "Can you guess why?").
@@ -385,6 +385,14 @@ CRITICAL RULES:
                 {
                   name: "close_visual_context",
                   description: "Closes the visual image panel on the screen. Call this tool when the user asks to close the image, or changes the topic to something unrelated to the current visual.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {}
+                  }
+                },
+                {
+                  name: "get_current_image_info",
+                  description: "Call this tool if the user asks you to explain the image currently on their screen, and you need to remember what image is currently being displayed.",
                   parameters: {
                     type: "OBJECT",
                     properties: {}
@@ -474,6 +482,23 @@ CRITICAL RULES:
                             id: call.id,
                             name: call.name,
                             response: { result: "Image panel closed." }
+                          }]
+                        }
+                      });
+                    } catch (e) {}
+                  } else if (call.name === 'get_current_image_info') {
+                    const currentCtx = visualContextRef.current;
+                    const resultText = currentCtx?.active 
+                      ? `The user is currently looking at an image titled "${currentCtx.title}". Background info: ${currentCtx.explanation}. Explain this to them.`
+                      : `There is no image currently on the screen. Tell the user you don't have an image to explain.`;
+                    
+                    try {
+                      sessionRef.current?.send({
+                        toolResponse: {
+                          functionResponses: [{
+                            id: call.id,
+                            name: call.name,
+                            response: { result: resultText }
                           }]
                         }
                       });
