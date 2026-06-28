@@ -358,7 +358,8 @@ CRITICAL RULES:
 1. NO QUEUING: If the user asks multiple questions in a row, or interrupts you with a new question while you are thinking, COMPLETELY ABANDON the old question and ONLY answer the absolute newest question. Never answer both.
 2. INSTANT STOP: If the user says "stop", "stop talking", or interrupts you, stop your current explanation immediately and wait for their next command.
 3. AUTO-IMAGES: When the user asks you to explain an educational topic (e.g., "explain photosynthesis", "what is the taj mahal", "tell me about the solar system"), ALWAYS use the show_visual_context tool to pull up a helpful image while you explain it. You do not need to wait for them to say "show me an image", just do it automatically for educational topics. Wait for the tool response, then explain the image.
-4. IMAGE MEMORY: If an image is already visible on the screen, and the user asks a follow-up question about it (e.g., "tell me more about this", "what is that red part"), DO NOT call the image search tool again. Just look at your internal memory of the current image's background info and answer the user directly.`,
+4. IMAGE MEMORY: If an image is already visible on the screen, and the user asks a follow-up question about it (e.g., "tell me more about this", "what is that red part"), DO NOT call the image search tool again. Just look at your internal memory of the current image's background info and answer the user directly.
+5. TOPIC SWITCHING: If an image is currently visible on the screen, but the user asks you to explain a COMPLETELY NEW and unrelated topic (e.g., they are looking at "TypeScript", but they suddenly ask "explain photosynthesis"), you MUST call the show_visual_context tool again with the new topic to change the image on the screen.`,
           tools: [
             { googleSearch: {} },
             {
@@ -444,7 +445,7 @@ CRITICAL RULES:
                       }
                       
                       const responseText = searchResult 
-                        ? `Image panel is now visible on screen. The image displayed is titled "${searchResult.title}". Background info: ${searchResult.explanation}. You must now speak naturally like a human teacher and say "As you can see in this image..." and explain it using this background info.`
+                        ? `Image panel is now visible on screen. The image displayed is titled "${searchResult.title}". Background info: ${searchResult.explanation}. You must now speak naturally like a human teacher and say "As you can see in this image..." and explain it using this background info, AS WELL AS your own internal knowledge.`
                         : `Failed to find an image for ${args.topic}. Apologize to the user and explain you couldn't find a good visual.`;
 
                       try {
