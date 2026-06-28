@@ -23,7 +23,7 @@ function enhanceSearchQuery(question) {
   return query;
 }
 
-export async function searchImage(question) {
+export async function searchImage(question, serperApiKey = '') {
   let rawTitle = question.replace(/^(what is|what's|who is|who's|explain|tell me about|show me|how does|what does|diagram of|picture of|image of|can you show( me)?( a)?( picture| image)?( of)?)\s+/i, '')
     .replace(/^(a|an|the)\s+/i, '')
     .replace(/\?$/, '')
@@ -50,7 +50,7 @@ export async function searchImage(question) {
   }
 
   // 2. Fallback to Serper.dev
-  const apiKey = process.env.SERPER_API_KEY;
+  const apiKey = serperApiKey || process.env.SERPER_API_KEY;
   if (!apiKey) {
     return { success: false, reason: 'Serper API key not configured', searchQuery: question };
   }

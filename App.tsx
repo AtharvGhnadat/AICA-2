@@ -9,6 +9,7 @@ import { VisualContextPanel } from './components/VisualContextPanel';
 import { visualContextService } from './services/visualContextService';
 import { topicRelevanceService } from './services/topicRelevanceService';
 import { VisualContext } from './types/visualContext';
+import { clsx } from 'clsx';
 
 // ─── Audio Utils ──────────────────────────────────────────────────────────────
 
@@ -103,13 +104,46 @@ function persistName(name: string) {
   } catch (_) { /* localStorage unavailable */ }
 }
 
+const STORAGE_KEY_GEMINI = 'emo_robot_gemini_api_key_swastik';
+const STORAGE_KEY_SERPER = 'emo_robot_serper_api_key_swastik';
+
+function loadSavedGeminiKey(): string {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_GEMINI);
+    if (saved && saved.trim().length > 0) return saved.trim();
+  } catch (_) { }
+  return '';
+}
+
+function persistGeminiKey(key: string) {
+  try {
+    localStorage.setItem(STORAGE_KEY_GEMINI, key.trim());
+  } catch (_) { }
+}
+
+function loadSavedSerperKey(): string {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_SERPER);
+    if (saved && saved.trim().length > 0) return saved.trim();
+  } catch (_) { }
+  return '';
+}
+
+function persistSerperKey(key: string) {
+  try {
+    localStorage.setItem(STORAGE_KEY_SERPER, key.trim());
+  } catch (_) { }
+}
+
 const App: React.FC = () => {
   const [status, setStatus] = useState<DeviceStatus>('idle');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => ({
     ...DEFAULT_SETTINGS,
-    deviceName: 'Swastik',
+    deviceName: loadSavedName() || 'Swastik',
     voiceName: 'Puck',
+    geminiApiKey: loadSavedGeminiKey(),
+    serperApiKey: loadSavedSerperKey(),
   }));
   const [isConnected, setIsConnected] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -153,6 +187,12 @@ const App: React.FC = () => {
     if (updates.deviceName !== undefined) {
       persistName(updates.deviceName);
     }
+    if (updates.geminiApiKey !== undefined) {
+      persistGeminiKey(updates.geminiApiKey);
+    }
+    if (updates.serperApiKey !== undefined) {
+      persistSerperKey(updates.serperApiKey);
+    }
     setSettings(prev => ({ ...prev, ...updates }));
   };
 
@@ -192,7 +232,7 @@ const App: React.FC = () => {
   const triggerImageSearch = async (text: string): Promise<boolean> => {
     setVisualStatus('loading');
     setVisualContext({ active: true, searchQuery: text, imageSource: 'none', title: '', explanation: '', imageUrl: '' });
-    const result = await visualContextService.searchImage(text);
+    const result = await visualContextService.searchImage(text, settingsRef.current.serperApiKey);
     if (result) {
       setVisualContext({ ...result, active: true });
       setVisualStatus('success');
@@ -313,18 +353,18 @@ const App: React.FC = () => {
       });
       streamRef.current = stream;
 
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.API_KEY || import.meta.env.VITE_API_KEY;
-      if (!apiKey) throw new Error("API key missing. Check .env");
+      const currentSettings = settingsRef.current;
+      const apiKey = currentSettings.geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || process.env.API_KEY || import.meta.env.VITE_API_KEY;
+      if (!apiKey) throw new Error("API key missing. Enter it in Settings.");
 
       const ai = new GoogleGenAI({ apiKey });
-      const currentSettings = settingsRef.current;
 
       const session = await ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } } },
-          systemInstruction: `You are Swastik, a friendly male AI companion robot built by Atharv, Siddhant, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice. Reply in 1-2 sentences, match user's language (Marathi/Hindi/English). Be concise and natural. Your name is Swastik. When the user asks for a picture, diagram, or asks an educational question where an image would be helpful, use the show_visual_context tool to display an image on their screen.`,
+          systemInstruction: `You are ${currentSettings.deviceName}, a friendly male AI companion robot built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice. Reply in 1-2 sentences, match user's language (Marathi/Hindi/English). Be concise and natural. Your name is ${currentSettings.deviceName}. When the user asks for a picture, diagram, or asks an educational question where an image would be helpful, use the show_visual_context tool to display an image on their screen.`,
           tools: [
             { googleSearch: {} },
             {
@@ -598,11 +638,15 @@ const App: React.FC = () => {
     >
       {/* Top bar */}
       <div
-        className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-2 py-2 pointer-events-none"
+        className={clsx(
+          "absolute top-0 left-0 z-50 flex items-center justify-between px-2 py-2 pointer-events-none transition-all duration-300",
+          visualContext?.active ? "md:right-1/2 right-0" : "right-0"
+        )}
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         <div className="flex items-center gap-2 pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
+            aria-label="Minimize to Desktop"
             onClick={(e) => { e.stopPropagation(); (window as any).electronAPI?.minimize(); }}
             className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-2xl transition-all active:scale-95 border-2 border-zinc-600 shadow-lg shadow-black/50"
           >
@@ -612,27 +656,30 @@ const App: React.FC = () => {
 
         <div className="flex items-center gap-2 pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
+            aria-label="Open Settings"
             onClick={(e) => { e.stopPropagation(); setIsSettingsOpen(true); }}
             className="w-10 h-10 flex items-center justify-center rounded-xl bg-zinc-800 hover:bg-zinc-700 transition-colors border-2 border-zinc-600"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-zinc-300">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-zinc-300" aria-hidden="true">
               <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" strokeWidth="2" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke="currentColor" strokeWidth="2" />
             </svg>
           </button>
           <button
+            aria-label="Toggle Fullscreen"
             onClick={(e) => { e.stopPropagation(); (window as any).electronAPI?.maximizeToggle(); }}
             className="w-10 h-10 flex items-center justify-center rounded-xl bg-zinc-800 hover:bg-zinc-700 transition-colors border-2 border-zinc-600"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-zinc-300">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-zinc-300" aria-hidden="true">
               <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
           <button
+            aria-label="Close Application"
             onClick={(e) => { e.stopPropagation(); (window as any).electronAPI?.close(); }}
             className="w-10 h-10 flex items-center justify-center rounded-xl bg-zinc-800 hover:bg-red-600 transition-colors border-2 border-zinc-600"
           >
-            <svg width="16" height="16" viewBox="0 0 18 18" className="text-zinc-300">
+            <svg width="16" height="16" viewBox="0 0 18 18" className="text-zinc-300" aria-hidden="true">
               <line x1="4" y1="4" x2="14" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               <line x1="14" y1="4" x2="4" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>

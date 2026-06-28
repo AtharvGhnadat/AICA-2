@@ -23,12 +23,12 @@ export const VisualContextPanel: React.FC<VisualContextPanelProps> = ({
   return (
     <div className={twMerge(
       clsx(
-        "relative h-full w-full bg-zinc-900 border-l border-zinc-800 flex flex-col",
+        "relative h-full w-full bg-slate-900 border-l border-white/10 flex flex-col",
         className
       )
     )}>
       {/* Header bar */}
-      <div className="flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-10 shrink-0">
+      <div className="flex items-center justify-between p-6 border-b border-white/10 bg-slate-950/40 sticky top-0 z-10 shrink-0">
         <StatusBadge 
           status={status === 'loading' ? 'loading' : status === 'error' ? 'error' : status === 'success' ? 'success' : 'none'} 
           text={
@@ -38,22 +38,23 @@ export const VisualContextPanel: React.FC<VisualContextPanelProps> = ({
           }
         />
         <button 
+          aria-label="Close image panel"
           onClick={onClose}
-          className="p-2 rounded-full hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-white"
+          className="p-3 rounded-full hover:bg-white/10 transition-colors text-slate-400 hover:text-white"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
 
       {/* Scrollable Content */}
-      <TouchScrollArea className="flex-1 p-4 md:p-6 flex flex-col gap-6">
+      <TouchScrollArea className="flex-1 p-6 md:p-10 flex flex-col gap-8">
         {context?.imageUrl && (
-          <div className="w-full flex-1 min-h-[35vh] md:min-h-[50vh] bg-zinc-950/80 rounded-2xl overflow-hidden border border-zinc-800/80 shadow-2xl flex items-center justify-center shrink-0 p-2 relative group">
+          <div className="w-full flex-1 min-h-[40vh] md:min-h-[55vh] bg-slate-950/60 rounded-3xl overflow-hidden border border-white/5 shadow-[0_0_40px_rgba(0,0,0,0.5)] flex items-center justify-center shrink-0 p-4 relative group">
             
-            {/* Loading skeleton placeholder */}
-            <div className="absolute inset-0 bg-zinc-800/50 animate-pulse -z-10" />
+            {/* Elegant Loading skeleton placeholder */}
+            <div className="absolute inset-0 bg-slate-800/30 animate-pulse -z-10" />
 
             <img 
               key={context.imageUrl}
@@ -78,12 +79,12 @@ export const VisualContextPanel: React.FC<VisualContextPanelProps> = ({
           </div>
         )}
 
-        <div className="flex flex-col gap-3 shrink-0 pb-10">
+        <div className="flex flex-col gap-4 shrink-0 pb-12">
           {context?.title && (
-            <h2 className="text-2xl font-bold text-white tracking-tight">{context.title}</h2>
+            <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-tight">{context.title}</h2>
           )}
           {context?.explanation && (
-            <p className="text-zinc-300 text-lg leading-relaxed">{context.explanation}</p>
+            <p className="text-slate-300 text-xl md:text-2xl leading-relaxed font-light">{context.explanation}</p>
           )}
         </div>
       </TouchScrollArea>

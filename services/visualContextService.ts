@@ -11,7 +11,7 @@ const API_BASE = Capacitor.isNativePlatform()
 const searchCache = new Map<string, Partial<VisualContext>>();
 
 export const visualContextService = {
-  async searchImage(question: string): Promise<Partial<VisualContext> | null> {
+  async searchImage(question: string, serperApiKey?: string): Promise<Partial<VisualContext> | null> {
     const trimmedQ = question.trim();
     if (!trimmedQ) return null;
 
@@ -25,7 +25,7 @@ export const visualContextService = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ question: trimmedQ }),
+        body: JSON.stringify({ question: trimmedQ, serperApiKey }),
       });
 
       const data = await response.json();

@@ -14,15 +14,15 @@ export const SplitRobotLayout: React.FC<SplitRobotLayoutProps> = ({
   isSplitView 
 }) => {
   return (
-    <div className="relative w-full h-full flex flex-col md:flex-row overflow-hidden bg-black">
+    <div className="relative w-full h-full flex flex-col md:flex-row overflow-hidden bg-slate-950">
       {/* Left/Top Panel (Robot Face) */}
       <div 
         className={twMerge(
           clsx(
-            "transition-all duration-500 ease-in-out flex-shrink-0 h-full w-full",
+            "transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] flex-shrink-0 h-full w-full",
             {
-              "md:w-1/2 h-[40vh] md:h-full": isSplitView, // when split, 50% width on desktop, 40% height on mobile
-              "md:w-full h-full": !isSplitView // full screen when not split
+              "md:w-1/2 h-[40vh] md:h-full": isSplitView,
+              "md:w-full h-full": !isSplitView
             }
           )
         )}
@@ -34,7 +34,7 @@ export const SplitRobotLayout: React.FC<SplitRobotLayoutProps> = ({
       <div 
         className={twMerge(
           clsx(
-            "transition-all duration-500 ease-in-out flex-shrink-0 h-full w-full bg-zinc-900 border-t md:border-t-0 md:border-l border-zinc-800",
+            "transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] flex-shrink-0 h-full w-full bg-slate-900 border-t md:border-t-0 md:border-l border-white/5 shadow-[-20px_0_50px_rgba(0,0,0,0.5)]",
             {
               "md:w-1/2 h-[60vh] md:h-full translate-x-0 translate-y-0 opacity-100": isSplitView,
               "md:w-0 h-0 md:h-full translate-x-full md:translate-x-full md:translate-y-0 translate-y-full opacity-0": !isSplitView

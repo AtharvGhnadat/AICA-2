@@ -15,11 +15,11 @@ const PORT = process.env.PORT || 5000;
 
 app.post('/api/image-search', async (req, res) => {
   try {
-    const { question } = req.body;
+    const { question, serperApiKey } = req.body;
     if (!question) {
       return res.status(400).json({ success: false, reason: 'Question is required' });
     }
-    const result = await searchImage(question);
+    const result = await searchImage(question, serperApiKey);
     res.json(result);
   } catch (error) {
     console.error('Image search error:', error);

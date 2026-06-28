@@ -21,12 +21,12 @@ export const RobotFacePanel: React.FC<RobotFacePanelProps> = React.memo(({
   statusGlow
 }) => {
   return (
-    <div className="relative w-full h-full flex flex-col items-center justify-center">
-      {/* Subtle radial gradient background */}
+    <div className="relative w-full h-full flex flex-col items-center justify-center bg-slate-950">
+      {/* Rich ambient radial gradient background */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
-          background: `radial-gradient(ellipse at 50% 40%, ${settings.eyeColor}06 0%, transparent 60%)`,
+          background: `radial-gradient(circle at 50% 50%, ${settings.eyeColor}12 0%, transparent 70%)`,
           transition: 'background 2s ease',
         }}
       />
@@ -37,22 +37,22 @@ export const RobotFacePanel: React.FC<RobotFacePanelProps> = React.memo(({
 
         {/* Error message */}
         {errorMessage && (
-          <div className="mt-10 px-5 py-2 bg-red-500/8 border border-red-500/15 rounded-xl">
-            <span className="text-red-400 text-[10px] uppercase font-mono tracking-[0.15em]">{errorMessage}</span>
+          <div className="mt-12 px-6 py-3 bg-slate-900 border border-red-500/20 rounded-2xl">
+            <span className="text-red-400 text-xs font-semibold uppercase tracking-[0.2em]">{errorMessage}</span>
           </div>
         )}
       </div>
 
-      {/* Bottom status bar */}
-      <div className="absolute bottom-6 left-0 right-0 flex flex-col items-center gap-3 z-10 pointer-events-none">
-        {/* Status pill */}
-        <div className="flex items-center gap-2.5 px-5 py-1.5 rounded-full bg-zinc-900/60 border border-zinc-800/50">
-          <div className={`w-1.5 h-1.5 rounded-full ${statusDotColor} ${statusGlow} ${status === 'listening' || status === 'speaking' ? 'animate-pulse' : ''}`} />
-          <span className="text-[9px] font-mono text-zinc-500 tracking-[0.2em] uppercase">{statusLabel}</span>
+      {/* Bottom status bar (Glassmorphic) */}
+      <div className="absolute bottom-8 left-0 right-0 flex flex-col items-center gap-4 z-10 pointer-events-none">
+        {/* Status capsule */}
+        <div className="flex items-center gap-3 px-6 py-2.5 rounded-full bg-slate-900/95 border border-white/10 shadow-lg">
+          <div className={`w-2 h-2 rounded-full ${statusDotColor} ${statusGlow} ${status === 'listening' || status === 'speaking' ? 'animate-pulse' : ''}`} />
+          <span className="text-[11px] font-semibold text-slate-300 tracking-[0.25em] uppercase">{statusLabel}</span>
         </div>
 
-        {/* Name */}
-        <span className="text-[8px] font-mono text-zinc-700 tracking-[0.3em] uppercase">{settings.deviceName}</span>
+        {/* Device Name */}
+        <span className="text-[9px] font-bold text-slate-600 tracking-[0.4em] uppercase">{settings.deviceName}</span>
       </div>
     </div>
   );

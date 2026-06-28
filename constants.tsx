@@ -1,4 +1,3 @@
-
 import { Settings } from './types';
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -7,6 +6,8 @@ export const DEFAULT_SETTINGS: Settings = {
   sensitivity: 50,
   eyeColor: '#00f2ff', // Neon Cyan
   voiceName: 'Kore', // Female-sounding voice
+  geminiApiKey: '',
+  serperApiKey: '',
 };
 
 export const AUDIO_SAMPLE_RATE_INPUT = 16000;

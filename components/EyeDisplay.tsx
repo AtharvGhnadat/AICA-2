@@ -47,25 +47,24 @@ const EyeDisplay: React.FC<FaceDisplayProps> = ({ status, color }) => {
     driftRef.current = setInterval(() => {
       if (status === 'thinking') {
         // Dramatic lookup when thinking
-        const lookUp = -40 - Math.random() * 15;
-        const lookSide = (Math.random() > 0.5 ? 1 : -1) * (20 + Math.random() * 20);
+        const lookUp = -60 - Math.random() * 20;
+        const lookSide = (Math.random() > 0.5 ? 1 : -1) * (30 + Math.random() * 30);
         setPupilOffset({ x: lookSide, y: lookUp });
       } else if (status === 'listening') {
         // Tiny cute eager jiggles
-        setPupilOffset({ x: (Math.random() - 0.5) * 8, y: (Math.random() - 0.5) * 8 });
+        setPupilOffset({ x: (Math.random() - 0.5) * 12, y: (Math.random() - 0.5) * 12 });
       } else {
         // Normal wandering
-        setPupilOffset({ x: (Math.random() - 0.5) * 20, y: (Math.random() - 0.5) * 15 });
+        setPupilOffset({ x: (Math.random() - 0.5) * 30, y: (Math.random() - 0.5) * 20 });
       }
     }, interval);
     return () => { if (driftRef.current) clearInterval(driftRef.current); };
   }, [status]);
 
-  // Speaking Animation
+  // Speaking Animation (Hardware Accelerated)
   useEffect(() => {
     if (status === 'speaking') {
       const animateMouth = () => {
-        // Values for calculating responsive width/height of the mouth pill
         setSpeakScale(Math.random());
         speakTimerRef.current = setTimeout(animateMouth, 100 + Math.random() * 150);
       };
@@ -76,31 +75,27 @@ const EyeDisplay: React.FC<FaceDisplayProps> = ({ status, color }) => {
     return () => { if (speakTimerRef.current) clearTimeout(speakTimerRef.current); };
   }, [status]);
 
-  // Compute Eye Styles based on State
-  let baseWidth = 100;
-  let baseHeight = 140;
-  let baseRadius = '60px';
+  // Massive scaling for 11" Tablet Landscape
+  let baseWidth = 160;
+  let baseHeight = 220;
+  let baseRadius = '90px';
 
   if (status === 'listening') {
-    // Huge, excited, attentive eyes
-    baseWidth = 140;
-    baseHeight = 140;
+    baseWidth = 220;
+    baseHeight = 220;
     baseRadius = '50%';
   } else if (status === 'thinking') {
-    // Slightly squished while pondering
-    baseWidth = 120;
-    baseHeight = 100;
-    baseRadius = '45px';
+    baseWidth = 190;
+    baseHeight = 160;
+    baseRadius = '70px';
   } else if (status === 'error') {
-    // Droopy sad eyes
-    baseWidth = 110;
-    baseHeight = 130;
-    baseRadius = '50px';
+    baseWidth = 170;
+    baseHeight = 200;
+    baseRadius = '75px';
   } else if (status === 'speaking') {
-    // Classic wide, smiling curved eyes
-    baseWidth = 140;
-    baseHeight = 110;
-    baseRadius = '50px';
+    baseWidth = 220;
+    baseHeight = 170;
+    baseRadius = '75px';
   }
 
   const renderEye = (side: 'left' | 'right') => {
@@ -112,22 +107,18 @@ const EyeDisplay: React.FC<FaceDisplayProps> = ({ status, color }) => {
     let botLidRotate = 0;
 
     if (status === 'speaking') {
-      // Extremely happy, warm smile ^ ^
       botLidHeight = '40%';
       botLidRotate = isLeft ? 25 : -25;
     } else if (status === 'error') {
-      // Sad, worried, or dizzy look / \ (instead of angry rude \ /)
       topLidHeight = '40%';
       topLidRotate = isLeft ? -25 : 25;
       botLidHeight = '15%';
       botLidRotate = isLeft ? -10 : 10;
     } else if (status === 'thinking') {
-      // Classic "Hmm..." raised eyebrow (asymmetrical)
       topLidHeight = isLeft ? '45%' : '15%';
       botLidHeight = '10%';
       topLidRotate = isLeft ? -10 : 10;
     } else if (status === 'listening') {
-      // Gentle, attentive, eager puppy-dog smile
       botLidHeight = '15%';
       botLidRotate = isLeft ? 10 : -10;
     }
@@ -143,42 +134,38 @@ const EyeDisplay: React.FC<FaceDisplayProps> = ({ status, color }) => {
           borderRadius: baseRadius,
           x: pupilOffset.x,
           y: pupilOffset.y,
-          // Only scale eyes for blinking, completely remove speakScale jitter from eyes
-          scaleY: blinkPhase === 1 ? 0.05 : 1,
+          scaleY: blinkPhase === 1 ? 0.05 : 1, // Hardware accelerated blink
           scaleX: 1,
-          boxShadow: "0 0 30px " + color + "AA, inset 0 0 20px " + color + "88"
+          boxShadow: `0 0 50px ${color}99, inset 0 0 30px ${color}AA` // Enhanced premium glow
         }}
         transition={{ type: "spring", stiffness: 300, damping: 25 }}
-        style={{ backgroundColor: color, margin: '0 30px' }}
+        style={{ backgroundColor: color, margin: '0 80px' }} // Increased gap for 11"
       >
+        {/* Lids */}
         <motion.div
           className="absolute left-[-40%] top-[-10%]"
           initial={false}
           animate={{ height: topLidHeight, rotate: topLidRotate }}
           transition={{ type: "spring", stiffness: 200, damping: 20 }}
-          style={{ backgroundColor: '#000', transformOrigin: 'bottom center', zIndex: 10, width: '180%' }}
+          style={{ backgroundColor: '#020617', transformOrigin: 'bottom center', zIndex: 10, width: '180%' }}
         />
         <motion.div
           className="absolute left-[-40%] bottom-[-10%]"
           initial={false}
           animate={{ height: botLidHeight, rotate: botLidRotate }}
           transition={{ type: "spring", stiffness: 200, damping: 20 }}
-          style={{ backgroundColor: '#000', transformOrigin: 'top center', zIndex: 10, width: '180%' }}
+          style={{ backgroundColor: '#020617', transformOrigin: 'top center', zIndex: 10, width: '180%' }}
         />
 
+        {/* Highlights */}
         <motion.div
-          className="absolute top-[18%] left-[22%] w-[25px] h-[35px] bg-white rounded-full"
-          animate={{
-            opacity: status === 'error' ? 0 : 0.65,
-            scale: status === 'listening' ? 1.2 : 1
-          }}
+          className="absolute top-[18%] left-[22%] w-[40px] h-[55px] bg-white rounded-full"
+          animate={{ opacity: status === 'error' ? 0 : 0.65, scale: status === 'listening' ? 1.2 : 1 }}
           style={{ zIndex: 5 }}
         />
         <motion.div
-          className="absolute top-[40%] left-[18%] w-[10px] h-[10px] bg-white rounded-full"
-          animate={{
-            opacity: status === 'error' ? 0 : 0.45,
-          }}
+          className="absolute top-[40%] left-[18%] w-[15px] h-[15px] bg-white rounded-full"
+          animate={{ opacity: status === 'error' ? 0 : 0.45 }}
           style={{ zIndex: 5 }}
         />
       </motion.div>
@@ -190,7 +177,6 @@ const EyeDisplay: React.FC<FaceDisplayProps> = ({ status, color }) => {
       className="flex justify-center items-center w-full h-full bg-transparent p-10 relative"
       animate={{
         y: status === 'speaking' ? [0, -15, 0] : [0, -8, 0],
-        scale: status === 'speaking' ? [1, 1.05, 1] : [1, 1.01, 1]
       }}
       transition={{
         duration: status === 'speaking' ? 0.8 : 3,
@@ -201,24 +187,25 @@ const EyeDisplay: React.FC<FaceDisplayProps> = ({ status, color }) => {
       {renderEye('left')}
 
       <AnimatePresence>
-        {/* Sleek, responsive, premium product-design mouth but now cuter */}
         {status === 'speaking' && (
           <motion.div
-            className="absolute"
+            className="absolute origin-top"
             style={{
               backgroundColor: color,
-              y: 110, // Safely distanced from eyes
-              boxShadow: "0 0 20px " + color + "AA"
+              y: 160, // Positioned safely below the larger 11" eyes
+              boxShadow: `0 0 30px ${color}AA`,
+              borderRadius: '35px',
+              width: '80px', // Fixed base dimensions to prevent layout thrashing
+              height: '30px'
             }}
-            initial={{ opacity: 0, height: 10, width: 30 }}
+            initial={{ opacity: 0, scaleX: 0.5, scaleY: 0 }}
             animate={{
               opacity: 1,
-              // Taller, rounder mouth (more 'O' and 'D' shapes) rather than just a flat pill
-              height: 25 + speakScale * 35,
-              width: 40 + speakScale * 40,
-              borderRadius: '35px'
+              // GPU accelerated scaling instead of width/height thrashing
+              scaleX: 0.6 + speakScale * 0.8,
+              scaleY: 0.5 + speakScale * 2.5,
             }}
-            exit={{ opacity: 0, height: 10, width: 30 }}
+            exit={{ opacity: 0, scaleX: 0.5, scaleY: 0 }}
             transition={{ type: 'spring', stiffness: 450, damping: 25 }}
           />
         )}

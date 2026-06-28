@@ -7,6 +7,8 @@ export interface Settings {
   sensitivity: number;
   eyeColor: string;
   voiceName: 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
+  geminiApiKey?: string;
+  serperApiKey?: string;
 }
 
 export interface TranscriptionItem {
