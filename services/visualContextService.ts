@@ -1,14 +1,29 @@
 import { VisualContext } from '../types/visualContext';
-import { Capacitor } from '@capacitor/core';
-
-// For Capacitor Android, we need the absolute backend IP. 
-// For web browser, we use an empty string to use Vite's proxy (bypassing CSP/Mixed Content).
-const API_BASE = Capacitor.isNativePlatform() 
-  ? (import.meta.env.VITE_BACKEND_URL || 'http://192.168.0.226:5000') 
-  : '';
 
 // Simple cache for memory optimization on low RAM devices
 const searchCache = new Map<string, Partial<VisualContext>>();
+
+function enhanceSearchQuery(question: string) {
+  const lowerQ = question.toLowerCase();
+  
+  // Educational terms check
+  const isScience = /photosynthesis|water cycle|human heart|solar system|cell|atom|gravity/.test(lowerQ);
+  const isHistory = /shivaji maharaj|mahatma gandhi|lincoln|history/.test(lowerQ);
+
+  let query = lowerQ
+    .replace(/^(what is|what's|who is|who's|explain|tell me about|show me|how does|what does|diagram of|picture of|image of|can you show( me)?( a)?( picture| image)?( of)?)\s+/i, '')
+    .replace(/^(a|an|the)\s+/i, '')
+    .replace(/[?.,]/g, '')
+    .trim();
+
+  if (isScience) {
+    query += ' educational diagram for students';
+  } else if (isHistory) {
+    query += ' portrait';
+  }
+  
+  return query;
+}
 
 export const visualContextService = {
   async searchImage(question: string, serperApiKey?: string): Promise<Partial<VisualContext> | null> {
@@ -19,40 +34,90 @@ export const visualContextService = {
       return searchCache.get(trimmedQ) || null;
     }
 
+    let rawTitle = trimmedQ.replace(/^(what is|what's|who is|who's|explain|tell me about|show me|how does|what does|diagram of|picture of|image of|can you show( me)?( a)?( picture| image)?( of)?)\s+/i, '')
+      .replace(/^(a|an|the)\s+/i, '')
+      .replace(/\?$/, '')
+      .trim();
+    rawTitle = rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1);
+    
+    // 1. Attempt ultra-fast Wikipedia search first
     try {
-      const response = await fetch(`${API_BASE}/api/image-search`, {
+      const wikiTitle = encodeURIComponent(rawTitle.replace(/ /g, '_'));
+      const wikiResponse = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${wikiTitle}`);
+      if (wikiResponse.ok) {
+        const wikiData = await wikiResponse.json();
+        if (wikiData.originalimage && wikiData.originalimage.source) {
+          const result = {
+            title: wikiData.title || rawTitle,
+            explanation: wikiData.extract || `Here is an educational visual representation related to "${rawTitle}".`,
+            imageUrl: wikiData.originalimage.source,
+            thumbnailUrl: wikiData.thumbnail?.source || wikiData.originalimage.source,
+            searchQuery: trimmedQ,
+            imageSource: 'wikipedia',
+            active: true
+          } as Partial<VisualContext>;
+
+          if (searchCache.size >= 10) {
+            const firstKey = searchCache.keys().next().value;
+            if (firstKey) searchCache.delete(firstKey);
+          }
+          searchCache.set(trimmedQ, result);
+          return result;
+        }
+      }
+    } catch (err) {
+      // Silently fall back to SerpApi
+    }
+
+    // 2. Fallback to Serper.dev
+    const apiKey = serperApiKey || import.meta.env.VITE_SERPER_API_KEY;
+    if (!apiKey) {
+      console.warn('Serper API key not configured');
+      return null;
+    }
+
+    const query = enhanceSearchQuery(trimmedQ);
+
+    try {
+      const response = await fetch('https://google.serper.dev/images', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'X-API-KEY': apiKey,
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ question: trimmedQ, serperApiKey }),
+        body: JSON.stringify({ q: query })
       });
 
-      const data = await response.json();
-      
-      if (data.success) {
-        const result = {
-          title: data.title,
-          explanation: data.explanation,
-          imageUrl: data.imageUrl,
-          thumbnailUrl: data.thumbnailUrl,
-          searchQuery: data.searchQuery,
-          imageSource: data.imageSource,
-          active: true
-        } as Partial<VisualContext>;
+      if (!response.ok) return null;
 
-        // Keep cache small (last 10 items)
-        if (searchCache.size >= 10) {
-          const firstKey = searchCache.keys().next().value;
-          if (firstKey) searchCache.delete(firstKey);
-        }
-        
-        searchCache.set(trimmedQ, result);
-        return result;
+      const data = await response.json();
+      const results = data.images;
+      
+      if (!results || results.length === 0) {
+        return null;
       }
-      return null;
+
+      const bestImage = results[0];
+      
+      const result = {
+        title: rawTitle || 'Visual Context',
+        explanation: `Here is an educational visual representation related to "${rawTitle}".`,
+        imageUrl: bestImage.imageUrl || bestImage.thumbnailUrl,
+        thumbnailUrl: bestImage.thumbnailUrl,
+        searchQuery: query,
+        imageSource: 'serper',
+        active: true
+      } as Partial<VisualContext>;
+
+      if (searchCache.size >= 10) {
+        const firstKey = searchCache.keys().next().value;
+        if (firstKey) searchCache.delete(firstKey);
+      }
+      searchCache.set(trimmedQ, result);
+      return result;
+
     } catch (error) {
-      console.error('Failed to search image:', error);
+      console.error('SerpApi error:', error);
       return null;
     }
   }
