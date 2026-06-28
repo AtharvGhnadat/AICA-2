@@ -457,10 +457,11 @@ CRITICAL RULES:
                       }
                       
                       const responseText = searchResult 
-                        ? `Image panel is now visible on screen. The image displayed is titled "${searchResult.title}". Background info: ${searchResult.explanation}. You must now speak naturally like a human teacher and say "As you can see in this image..." and explain it using this background info, AS WELL AS your own internal knowledge.`
-                        : `Failed to find an image for ${args.topic}. Apologize to the user and explain you couldn't find a good visual.`;
+                        ? `SUCCESS: Image titled "${searchResult.title}" is now visible to the user.`
+                        : `ERROR: Failed to find an image.`;
 
                       try {
+                        // 1. Send the required tool response
                         sessionRef.current?.send({
                           toolResponse: {
                             functionResponses: [{
@@ -468,6 +469,21 @@ CRITICAL RULES:
                               name: call.name,
                               response: { result: responseText }
                             }]
+                          }
+                        });
+                        
+                        // 2. FORCE the AI to speak by sending a hidden user prompt!
+                        const followUpPrompt = searchResult
+                          ? `I can see the image of "${searchResult.title}" on my screen now. Please explain it to me using this background info: ${searchResult.explanation}`
+                          : `You couldn't find an image. Please just explain the topic verbally instead.`;
+                          
+                        sessionRef.current?.send({
+                          clientContent: {
+                            turns: [{
+                              role: 'user',
+                              parts: [{ text: followUpPrompt }]
+                            }],
+                            turnComplete: true
                           }
                         });
                       } catch (e) {}
