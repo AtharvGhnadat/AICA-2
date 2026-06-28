@@ -40,14 +40,14 @@ export const visualContextService = {
       .trim();
     rawTitle = rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1);
     
-    // 1. Attempt ultra-fast Wikipedia search first
-    try {
+    // Fire both Wikipedia and Serper requests concurrently
+    const wikiPromise = (async () => {
       const wikiTitle = encodeURIComponent(rawTitle.replace(/ /g, '_'));
       const wikiResponse = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${wikiTitle}`);
       if (wikiResponse.ok) {
         const wikiData = await wikiResponse.json();
         if (wikiData.originalimage && wikiData.originalimage.source) {
-          const result = {
+          return {
             title: wikiData.title || rawTitle,
             explanation: wikiData.extract || `Here is an educational visual representation related to "${rawTitle}".`,
             imageUrl: wikiData.originalimage.source,
@@ -56,29 +56,16 @@ export const visualContextService = {
             imageSource: 'wikipedia',
             active: true
           } as Partial<VisualContext>;
-
-          if (searchCache.size >= 10) {
-            const firstKey = searchCache.keys().next().value;
-            if (firstKey) searchCache.delete(firstKey);
-          }
-          searchCache.set(trimmedQ, result);
-          return result;
         }
       }
-    } catch (err) {
-      // Silently fall back to SerpApi
-    }
+      throw new Error('Wiki failed');
+    })();
 
-    // 2. Fallback to Serper.dev
-    const apiKey = serperApiKey || import.meta.env.VITE_SERPER_API_KEY;
-    if (!apiKey) {
-      console.warn('Serper API key not configured');
-      return null;
-    }
+    const serperPromise = (async () => {
+      const apiKey = serperApiKey || import.meta.env.VITE_SERPER_API_KEY;
+      if (!apiKey) throw new Error('Serper API key not configured');
 
-    const query = enhanceSearchQuery(trimmedQ);
-
-    try {
+      const query = enhanceSearchQuery(trimmedQ);
       const response = await fetch('https://google.serper.dev/images', {
         method: 'POST',
         headers: {
@@ -88,18 +75,17 @@ export const visualContextService = {
         body: JSON.stringify({ q: query })
       });
 
-      if (!response.ok) return null;
+      if (!response.ok) throw new Error('Serper request failed');
 
       const data = await response.json();
       const results = data.images;
       
       if (!results || results.length === 0) {
-        return null;
+        throw new Error('No images found via Serper');
       }
 
       const bestImage = results[0];
-      
-      const result = {
+      return {
         title: rawTitle || 'Visual Context',
         explanation: `Here is an educational visual representation related to "${rawTitle}".`,
         imageUrl: bestImage.imageUrl || bestImage.thumbnailUrl,
@@ -108,7 +94,12 @@ export const visualContextService = {
         imageSource: 'serper',
         active: true
       } as Partial<VisualContext>;
+    })();
 
+    try {
+      // Return whichever resolves successfully first! (Ultra-fast)
+      const result = await Promise.any([wikiPromise, serperPromise]);
+      
       if (searchCache.size >= 10) {
         const firstKey = searchCache.keys().next().value;
         if (firstKey) searchCache.delete(firstKey);
@@ -117,7 +108,7 @@ export const visualContextService = {
       return result;
 
     } catch (error) {
-      console.error('SerpApi error:', error);
+      console.error('All image search providers failed:', error);
       return null;
     }
   }
