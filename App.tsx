@@ -239,7 +239,7 @@ const App: React.FC = () => {
 
       // Inform the model about the visual context shown on the screen
       try {
-        const contextMessage = `[System context: The image related to "${result.title || result.searchQuery}" has now successfully loaded and appeared on the user's screen. You should now say "Here is the image" and briefly explain what they are seeing.]`;
+        const contextMessage = `[System context: The image related to "${result.title || result.searchQuery}" has now successfully loaded and appeared on the user's screen. You should now speak naturally like a human teacher and say something like "As you can see in this image..." and briefly explain what they are seeing in an engaging way.]`;
         if (sessionRef.current && sessionRef.current.send) {
           sessionRef.current.send({
             clientContent: {

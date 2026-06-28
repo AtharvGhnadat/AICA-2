@@ -49,23 +49,27 @@ export const VisualContextPanel: React.FC<VisualContextPanelProps> = ({
       </div>
 
       {/* Scrollable Content */}
-      <TouchScrollArea className="flex-1 p-6 md:p-10 flex flex-col gap-8">
+      <TouchScrollArea className="flex-1 p-6 md:p-8 flex flex-col gap-6">
         {context?.imageUrl && (
-          <div className="w-full flex-1 min-h-[40vh] md:min-h-[55vh] bg-slate-950/60 rounded-3xl overflow-hidden border border-white/5 shadow-[0_0_40px_rgba(0,0,0,0.5)] flex items-center justify-center shrink-0 p-4 relative group">
+          <div className="w-full relative flex items-center justify-center rounded-3xl overflow-hidden bg-slate-900/40 backdrop-blur-xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] shrink-0 p-4 min-h-[30vh] max-h-[45vh] md:min-h-[40vh] md:max-h-[50vh] transition-all duration-500 group">
             
             {/* Elegant Loading skeleton placeholder */}
             <div className="absolute inset-0 bg-slate-800/30 animate-pulse -z-10" />
+
+            {/* Subtle Gradient Glow Behind Image */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-cyan-500/5 to-purple-500/5 -z-10" />
 
             <img 
               key={context.imageUrl}
               src={context.imageUrl} 
               alt={context.title || 'Visual context'}
-              className="w-full h-full object-contain z-10 transition-opacity duration-300 opacity-0"
+              className="w-full h-full object-contain z-10 transition-all duration-700 opacity-0 scale-95 group-hover:scale-100"
               loading="lazy"
               decoding="async"
               referrerPolicy="no-referrer"
               onLoad={(e) => {
-                (e.target as HTMLImageElement).classList.remove('opacity-0');
+                const img = e.target as HTMLImageElement;
+                img.classList.remove('opacity-0', 'scale-95');
               }}
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
