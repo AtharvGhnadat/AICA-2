@@ -129,8 +129,15 @@ export const visualContextService = {
     })();
 
     try {
-      // Return whichever resolves successfully first! (Ultra-fast)
-      const result = await Promise.any([wikiPromise, serperPromise, wikimediaPromise]);
+      // Return whichever resolves successfully first, OR timeout after 1.5 seconds to prevent Gemini from timing out!
+      const timeoutPromise = new Promise<null>((_, reject) => 
+        setTimeout(() => reject(new Error('Image search timed out')), 1500)
+      );
+      
+      const result = await Promise.race([
+        Promise.any([wikiPromise, serperPromise, wikimediaPromise]),
+        timeoutPromise
+      ]) as Partial<VisualContext>;
       
       if (searchCache.size >= 10) {
         const firstKey = searchCache.keys().next().value;
@@ -141,9 +148,9 @@ export const visualContextService = {
 
     } catch (error: any) {
       if (error instanceof AggregateError) {
-        console.error('All image search providers failed. Errors:', error.errors);
+        console.warn('All image search providers failed. Errors:', error.errors);
       } else {
-        console.error('Unexpected error in image search:', error);
+        console.warn('Image search failed or timed out:', error.message);
       }
       return null;
     }
