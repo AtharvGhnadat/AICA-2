@@ -375,7 +375,7 @@ CORE BEHAVIORS:
                   description: "Displays a relevant image on the user's screen. Call this when explaining educational concepts.",
                   parameters: {
                     type: "OBJECT",
-                    properties: { topic: { type: "STRING" } },
+                    properties: { topic: { type: "STRING", description: "The exact Google Images search query to find the best image (e.g., 'Photosynthesis simple diagram', 'Human heart anatomy'). Be specific to get a good educational image." } },
                     required: ["topic"]
                   }
                 },

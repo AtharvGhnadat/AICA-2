@@ -83,14 +83,11 @@ export const visualContextService = {
       }
 
       try {
-        let rawTitle = trimmedQ.replace(/^(what is|what's|who is|who's|explain|tell me about|show me|how does|what does|diagram of|picture of|image of|can you show( me)?( a)?( picture| image)?( of)?)\s+/i, '')
+        let query = trimmedQ.replace(/^(what is|what's|who is|who's|explain|tell me about|show me|how does|what does|diagram of|picture of|image of|can you show( me)?( a)?( picture| image)?( of)?)\s+/i, '')
           .replace(/^(a|an|the)\s+/i, '')
           .replace(/\?$/, '')
           .trim();
-        rawTitle = rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1);
-
-        const isScience = /photosynthesis|water cycle|human heart|solar system|cell|atom|gravity/.test(trimmedQ.toLowerCase());
-        const query = isScience ? trimmedQ + ' educational diagram for students' : trimmedQ;
+        let rawTitle = query.charAt(0).toUpperCase() + query.slice(1);
 
         const fallbackResponse = await fetch('https://google.serper.dev/images', {
           method: 'POST',
