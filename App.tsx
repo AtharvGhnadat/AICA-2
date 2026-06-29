@@ -356,47 +356,12 @@ const App: React.FC = () => {
 
 CORE BEHAVIORS:
 1. INSTANT RESPONSES: Never pause or wait. If the user asks a new question, abandon the old one and answer immediately.
-2. ASYNC IMAGES: When explaining educational topics (e.g. photosynthesis, the solar system, history), ALWAYS call the show_visual_context tool to bring up an image.
-CRITICAL: Do NOT wait for the image to load. The moment you call the tool, IMMEDIATELY start explaining the topic using your own vast internal knowledge. The system will load the image in the background while you are speaking.
-3. INTERACTIVE TEACHER: Explain concepts simply and frequently ask quick follow-up questions to check understanding (e.g. "Does that make sense?").
-4. SMART MEMORY: You control the screen. If you already showed an image and the user asks "What is that red part?", they mean the image YOU just put on the screen. Use get_current_image_info if you forget what it is.
-5. TOPIC SWITCH: If they ask about a completely new topic, call show_visual_context with the new topic to swap the image on the screen, and start explaining it immediately.`,
+2. ASYNC IMAGES: You have a smart screen. To show an image on the screen, you MUST literally say the exact phrase: "Here is an image of [TOPIC]." (e.g. "Here is an image of the solar system."). The system will hear this and automatically load the image. You must then immediately continue verbally explaining the topic! Always do this for educational topics.
+3. CLOSING IMAGES: To close the screen, say the exact phrase: "Closing the image."
+4. SMART MEMORY: If you already showed an image, remember what you showed. If the user asks a follow-up, just answer it.
+5. TOPIC SWITCH: If they ask about a completely new topic, say "Here is an image of [NEW TOPIC]." to swap the image on the screen, and explain it.`,
           tools: [
-            { googleSearch: {} },
-            {
-              functionDeclarations: [
-                {
-                  name: "show_visual_context",
-                  description: "Initiates a search for a visual image panel to display on the screen. Call this tool when the user asks for a picture or educational diagram. Wait for the tool response, and then speak naturally to explain the image.",
-                  parameters: {
-                    type: "OBJECT",
-                    properties: {
-                      topic: {
-                        type: "STRING",
-                        description: "The topic or subject to show an image of (e.g. 'photosynthesis', 'human heart')"
-                      }
-                    },
-                    required: ["topic"]
-                  }
-                },
-                {
-                  name: "close_visual_context",
-                  description: "Closes the visual image panel on the screen. Call this tool when the user asks to close the image, or changes the topic to something unrelated to the current visual.",
-                  parameters: {
-                    type: "OBJECT",
-                    properties: {}
-                  }
-                },
-                {
-                  name: "get_current_image_info",
-                  description: "Call this tool if the user asks you to explain the image currently on their screen, and you need to remember what image is currently being displayed.",
-                  parameters: {
-                    type: "OBJECT",
-                    properties: {}
-                  }
-                }
-              ]
-            }
+            { googleSearch: {} }
           ],
         },
         callbacks: {
@@ -438,77 +403,18 @@ CRITICAL: Do NOT wait for the image to load. The moment you call the tool, IMMED
           },
           onmessage: (message: LiveServerMessage) => {
             
-            // Handle Tool Calls (e.g. show_visual_context)
+            // Handle Tool Calls fallback (if the model somehow calls a tool)
             if (message.toolCall) {
               const calls = message.toolCall.functionCalls;
               if (calls) {
                 for (const call of calls) {
-                  if (call.name === 'show_visual_context') {
-                    const args = call.args as { topic: string };
-                    
-                    const handleSync = () => {
-                      if (!args.topic) {
-                        try {
-                          sessionRef.current?.send({
-                            toolResponse: {
-                              functionResponses: [{ id: call.id, name: call.name, response: { status: "ERROR", message: "No topic provided" } }]
-                            }
-                          });
-                        } catch(e) {}
-                        return;
+                  try {
+                    sessionRef.current?.send({
+                      toolResponse: {
+                        functionResponses: [{ id: call.id, name: call.name, response: { result: "OK" } }]
                       }
-
-                      // 1. INSTANT RESPONSE: Tell the AI to start speaking immediately using its own knowledge
-                      try {
-                        sessionRef.current?.send({
-                          toolResponse: {
-                            functionResponses: [{
-                              id: call.id,
-                              name: call.name,
-                              response: { 
-                                status: "SEARCH_STARTED", 
-                                action_required: `The system is loading an image of ${args.topic} in the background. DO NOT WAIT. Start speaking IMMEDIATELY and explain ${args.topic} using your internal knowledge!` 
-                              }
-                            }]
-                          }
-                        });
-                      } catch (e) {}
-
-                      // 2. ASYNC LOAD: Trigger image search completely in the background without blocking
-                      triggerImageSearch(args.topic).catch(console.error);
-                    };
-                    handleSync();
-                  } else if (call.name === 'close_visual_context') {
-                    setVisualContext(prev => prev ? { ...prev, active: false } : null);
-                    try {
-                      sessionRef.current?.send({
-                        toolResponse: {
-                          functionResponses: [{
-                            id: call.id,
-                            name: call.name,
-                            response: { result: "Image panel closed." }
-                          }]
-                        }
-                      });
-                    } catch (e) {}
-                  } else if (call.name === 'get_current_image_info') {
-                    const currentCtx = visualContextRef.current;
-                    const resultText = currentCtx?.active 
-                      ? `The user is currently looking at an image titled "${currentCtx.title}". Background info: ${currentCtx.explanation}. Explain this to them.`
-                      : `There is no image currently on the screen. Tell the user you don't have an image to explain.`;
-                    
-                    try {
-                      sessionRef.current?.send({
-                        toolResponse: {
-                          functionResponses: [{
-                            id: call.id,
-                            name: call.name,
-                            response: { result: resultText }
-                          }]
-                        }
-                      });
-                    } catch (e) {}
-                  }
+                    });
+                  } catch (e) {}
                 }
               }
             }
@@ -549,6 +455,23 @@ CRITICAL: Do NOT wait for the image to load. The moment you call the tool, IMMED
 
               source.start(nextStartTimeRef.current);
               nextStartTimeRef.current += audioBuffer.duration;
+            }
+
+            // MAGIC PHRASE INTERCEPTION FOR TEXT
+            if (message.serverContent?.modelTurn?.parts) {
+              for (const part of message.serverContent.modelTurn.parts) {
+                if (part.text) {
+                  console.log("AI Text Output:", part.text);
+                  const text = part.text;
+                  const showMatch = text.match(/Here is an image of ([^.]+)/i);
+                  if (showMatch && showMatch[1]) {
+                    triggerImageSearch(showMatch[1].trim()).catch(console.error);
+                  }
+                  if (text.toLowerCase().includes("closing the image")) {
+                    setVisualContext(prev => prev ? { ...prev, active: false } : null);
+                  }
+                }
+              }
             }
 
             if (message.serverContent?.interrupted) {
