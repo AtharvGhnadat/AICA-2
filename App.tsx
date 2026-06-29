@@ -165,6 +165,7 @@ const App: React.FC = () => {
   const settingsRef = useRef<Settings>(DEFAULT_SETTINGS);
   const isConnectedRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
+  const textBufferRef = useRef<string>("");
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thinkingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const postSpeechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -382,16 +383,34 @@ CORE BEHAVIORS:
               const workletNode = new AudioWorkletNode(inputCtx, 'mic-processor');
               workletNodeRef.current = workletNode;
 
+              let micBuffer: Float32Array[] = [];
+              let micBufferLength = 0;
+              const TARGET_BUFFER_LENGTH = 4096; // Accumulate ~85ms to prevent WebSocket spam
+
               workletNode.port.onmessage = (ev: MessageEvent<Float32Array>) => {
                 if (!isConnectedRef.current) return;
 
-                const inputData = ev.data;
-                const downsampledData = downsampleBuffer(inputData, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
-                const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
-                
-                try {
-                  sessionRef.current?.sendRealtimeInput({ media: pcmBlob });
-                } catch (err) { }
+                micBuffer.push(ev.data);
+                micBufferLength += ev.data.length;
+
+                if (micBufferLength >= TARGET_BUFFER_LENGTH) {
+                  const mergedBuffer = new Float32Array(micBufferLength);
+                  let offset = 0;
+                  for (const b of micBuffer) {
+                    mergedBuffer.set(b, offset);
+                    offset += b.length;
+                  }
+
+                  const downsampledData = downsampleBuffer(mergedBuffer, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
+                  const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
+                  
+                  try {
+                    sessionRef.current?.sendRealtimeInput({ media: pcmBlob });
+                  } catch (err) { }
+
+                  micBuffer = [];
+                  micBufferLength = 0;
+                }
               };
 
               const source = inputCtx.createMediaStreamSource(stream);
@@ -424,6 +443,8 @@ CORE BEHAVIORS:
               if (activeSourcesRef.current.size === 0) {
                 transitionToListening();
               }
+              // Reset text buffer at the end of the turn
+              textBufferRef.current = "";
             }
 
             const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
@@ -461,14 +482,19 @@ CORE BEHAVIORS:
             if (message.serverContent?.modelTurn?.parts) {
               for (const part of message.serverContent.modelTurn.parts) {
                 if (part.text) {
-                  console.log("AI Text Output:", part.text);
-                  const text = part.text;
-                  const showMatch = text.match(/Here is an image of ([^.]+)/i);
+                  textBufferRef.current += part.text;
+                  console.log("AI Text Output (Buffered):", textBufferRef.current);
+                  
+                  const showMatch = textBufferRef.current.match(/Here is an image of ([^.]+)/i);
                   if (showMatch && showMatch[1]) {
+                    // Trigger search and clear buffer so we don't trigger multiple times
                     triggerImageSearch(showMatch[1].trim()).catch(console.error);
+                    textBufferRef.current = textBufferRef.current.replace(showMatch[0], "");
                   }
-                  if (text.toLowerCase().includes("closing the image")) {
+                  
+                  if (textBufferRef.current.toLowerCase().includes("closing the image")) {
                     setVisualContext(prev => prev ? { ...prev, active: false } : null);
+                    textBufferRef.current = "";
                   }
                 }
               }
