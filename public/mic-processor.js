@@ -1,11 +1,22 @@
 /**
  * AudioWorklet processor for capturing microphone audio.
- * Runs off the main thread — no UI jank on Raspberry Pi 5.
- * Replaces the deprecated ScriptProcessorNode.
+ * Implements an intelligent Noise Gate to filter out background friends/noise.
  */
 class MicProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
+    this.threshold = 0.01; // Default threshold
+    this.framesSinceLastLoud = 1000;
+    this.holdFrames = 150; // ~400ms hold time to prevent clipping during speech
+    
+    this.port.onmessage = (event) => {
+      if (event.data && event.data.type === 'SET_SENSITIVITY') {
+        // sensitivity is 0 to 100.
+        // 100 means picks up everything -> threshold ~ 0.001
+        // 0 means only very loud -> threshold ~ 0.05
+        this.threshold = 0.001 + ((100 - event.data.value) / 100) * 0.049;
+      }
+    };
   }
 
   process(inputs, _outputs, _parameters) {
@@ -14,8 +25,25 @@ class MicProcessor extends AudioWorkletProcessor {
       const channelData = input[0];
       // Only send if there's actual data
       if (channelData && channelData.length > 0) {
-        // Copy the data since the buffer will be reused
-        this.port.postMessage(new Float32Array(channelData));
+        let sumSquare = 0;
+        for (let i = 0; i < channelData.length; i++) {
+          sumSquare += channelData[i] * channelData[i];
+        }
+        const rms = Math.sqrt(sumSquare / channelData.length);
+        
+        if (rms > this.threshold) {
+          this.framesSinceLastLoud = 0;
+        } else {
+          this.framesSinceLastLoud++;
+        }
+
+        // If it's been quiet for longer than the hold time, send absolute silence
+        if (this.framesSinceLastLoud > this.holdFrames) {
+          this.port.postMessage(new Float32Array(channelData.length));
+        } else {
+          // Copy the data since the buffer will be reused
+          this.port.postMessage(new Float32Array(channelData));
+        }
       }
     }
     return true; // Keep processor alive

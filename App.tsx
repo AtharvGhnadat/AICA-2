@@ -176,7 +176,12 @@ const App: React.FC = () => {
   const currentInputTranscription = useRef('');
 
   useEffect(() => { statusRef.current = status; }, [status]);
-  useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { 
+    settingsRef.current = settings; 
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.postMessage({ type: 'SET_SENSITIVITY', value: settings.sensitivity });
+    }
+  }, [settings]);
   useEffect(() => { isConnectedRef.current = isConnected; }, [isConnected]);
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
   useEffect(() => { visualContextRef.current = visualContext; }, [visualContext]);
@@ -413,6 +418,7 @@ CORE BEHAVIORS:
               } catch (_) { }
 
               const workletNode = new AudioWorkletNode(inputCtx, 'mic-processor');
+              workletNode.port.postMessage({ type: 'SET_SENSITIVITY', value: settingsRef.current.sensitivity });
               workletNodeRef.current = workletNode;
 
               let micBuffer: Float32Array[] = [];
