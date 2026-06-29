@@ -147,6 +147,7 @@ const App: React.FC = () => {
   }));
   const [isConnected, setIsConnected] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
 
   // Visual Context State
   const [visualContext, setVisualContext] = useState<Partial<VisualContext> | null>(null);
@@ -164,6 +165,7 @@ const App: React.FC = () => {
   const statusRef = useRef<DeviceStatus>('idle');
   const settingsRef = useRef<Settings>(DEFAULT_SETTINGS);
   const isConnectedRef = useRef(false);
+  const isMutedRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   const textBufferRef = useRef<string>("");
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -176,6 +178,7 @@ const App: React.FC = () => {
   useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isConnectedRef.current = isConnected; }, [isConnected]);
+  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
   useEffect(() => { visualContextRef.current = visualContext; }, [visualContext]);
 
   const clearTimers = useCallback(() => {
@@ -417,7 +420,7 @@ CORE BEHAVIORS:
               const TARGET_BUFFER_LENGTH = 4096; // Accumulate ~85ms to prevent WebSocket spam
 
               workletNode.port.onmessage = (ev: MessageEvent<Float32Array>) => {
-                if (!isConnectedRef.current) return;
+                if (!isConnectedRef.current || isMutedRef.current) return;
 
                 micBuffer.push(ev.data);
                 micBufferLength += ev.data.length;
@@ -762,6 +765,27 @@ CORE BEHAVIORS:
             className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-2xl transition-all active:scale-95 border-2 border-zinc-600 shadow-lg shadow-black/50"
           >
             <span className="text-[11px] font-bold uppercase tracking-wide">Desktop</span>
+          </button>
+        </div>
+        <div className="flex items-center gap-2 pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <button
+            aria-label={isMuted ? "Resume Microphone" : "Pause Microphone"}
+            onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}
+            className={clsx(
+              "flex items-center gap-2 px-4 py-2.5 rounded-2xl transition-all active:scale-95 border-2 shadow-lg shadow-black/50",
+              isMuted 
+                ? "bg-amber-600 hover:bg-amber-500 border-amber-400 text-white" 
+                : "bg-zinc-800 hover:bg-zinc-700 border-zinc-600 text-white"
+            )}
+          >
+            {isMuted ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
+            )}
+            <span className="text-[11px] font-bold uppercase tracking-wide">
+              {isMuted ? "Paused" : "Mic On"}
+            </span>
           </button>
         </div>
 
