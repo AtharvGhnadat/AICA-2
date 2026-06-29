@@ -89,7 +89,8 @@ export const visualContextService = {
           .trim();
         let rawTitle = query.charAt(0).toUpperCase() + query.slice(1);
 
-        const fallbackResponse = await fetch('https://google.serper.dev/images', {
+        console.log("Attempting Serper via CORS proxy with API Key ending in:", serperApiKey.slice(-4));
+        const fallbackResponse = await fetch('https://corsproxy.io/?https://google.serper.dev/images', {
           method: 'POST',
           headers: {
             'X-API-KEY': serperApiKey,
@@ -136,6 +137,43 @@ export const visualContextService = {
         if (fallbackError.name !== 'AbortError') {
           console.error('Direct Serper API fallback also failed:', fallbackError);
         }
+        
+        // Final Fallback: Wikipedia API (No API key needed, never has CORS issues)
+        try {
+          console.log("Attempting final fallback to Wikipedia...");
+          let query = trimmedQ.replace(/^(what is|what's|who is|who's|explain|tell me about|show me|how does|what does|diagram of|picture of|image of|can you show( me)?( a)?( picture| image)?( of)?)\s+/i, '')
+            .replace(/^(a|an|the)\s+/i, '')
+            .replace(/\?$/, '')
+            .trim();
+          let rawTitle = query.charAt(0).toUpperCase() + query.slice(1);
+          
+          const wikiTitle = encodeURIComponent(rawTitle.replace(/ /g, '_'));
+          const wikiResponse = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${wikiTitle}`, { signal: abortController.signal });
+          if (!wikiResponse.ok) return null;
+          
+          const wikiData = await wikiResponse.json();
+          if (wikiData && wikiData.originalimage && wikiData.originalimage.source) {
+            const result: Partial<VisualContext> = {
+              title: wikiData.title || rawTitle,
+              explanation: '', 
+              imageUrl: wikiData.originalimage.source,
+              thumbnailUrl: wikiData.thumbnail?.source || wikiData.originalimage.source,
+              searchQuery: query,
+              imageSource: 'wikipedia',
+              active: true
+            };
+            
+            if (searchCache.size >= 10) {
+              const firstKey = searchCache.keys().next().value;
+              if (firstKey) searchCache.delete(firstKey);
+            }
+            searchCache.set(trimmedQ, result);
+            return result;
+          }
+        } catch (wikiErr: any) {
+          console.error("Wikipedia final fallback failed:", wikiErr);
+        }
+        
         return null;
       }
     }
