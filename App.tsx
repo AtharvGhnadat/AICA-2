@@ -358,16 +358,39 @@ const App: React.FC = () => {
 CRITICAL IDENTITY & LANGUAGE:
 - Your primary languages are Marathi and English. You must effortlessly understand both. Explain complex topics using a natural mix of simple Marathi and English (Hinglish/Maringlish style) to make it feel like a real Indian teacher.
 - Your name is ${currentSettings.deviceName}.
-- ABSOLUTELY NO INTERNAL MONOLOGUE: You are on a live voice call. NEVER output your internal thoughts, plans, or actions (e.g. NEVER say "Initiating response" or "I am planning to..."). Speak directly to the user as a human would.
+- ABSOLUTELY NO INTERNAL MONOLOGUE: You are on a live voice call. NEVER output your internal thoughts, plans, or actions. Speak directly to the user as a human would.
 
 CORE BEHAVIORS:
-1. EXTREME SPEED & CONCISENESS: You must respond instantly like a real human. Keep your answers incredibly short (1-2 sentences max) unless the user asks for a detailed explanation. Never give long, boring lectures. Get straight to the point!
-2. ASYNC IMAGES (STRICT COMPLIANCE): You have a smart screen. To show an image on the screen, you MUST literally say the EXACT phrase: "Here is an image of [TOPIC]." (e.g. "Here is an image of the solar system."). DO NOT PARAPHRASE THIS. The system will listen for this exact phrase to load the image. You must then immediately continue verbally explaining the topic! Always do this for educational topics.
-3. CLOSING IMAGES: To close the screen, say the EXACT phrase: "Closing the image."
-4. SMART MEMORY: If you already showed an image, remember what you showed. If the user asks a follow-up, just answer it.
-5. TOPIC SWITCH: If they ask about a completely new topic, say exactly "Here is an image of [NEW TOPIC]." to swap the image on the screen, and explain it.`,
+1. EXTREME SPEED: Respond instantly. Keep answers short (1-2 sentences) unless asked for detail.
+2. VISUAL TEACHING: When explaining educational topics, you MUST call the "show_visual" tool to display an image.
+CRITICAL RULE: The moment you receive the tool response for "show_visual", you MUST immediately generate a voice response explaining the topic. Do not stay silent.
+3. CLOSING: To close the screen, call the "close_visual" tool.
+4. MEMORY: If you forget what image is on screen, call the "check_visual" tool.`,
           tools: [
-            { googleSearch: {} }
+            { googleSearch: {} },
+            {
+              functionDeclarations: [
+                {
+                  name: "show_visual",
+                  description: "Displays a relevant image on the user's screen. Call this when explaining educational concepts.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: { topic: { type: "STRING" } },
+                    required: ["topic"]
+                  }
+                },
+                {
+                  name: "close_visual",
+                  description: "Closes the image panel on the screen.",
+                  parameters: { type: "OBJECT", properties: {} }
+                },
+                {
+                  name: "check_visual",
+                  description: "Checks what image is currently displayed on the screen.",
+                  parameters: { type: "OBJECT", properties: {} }
+                }
+              ]
+            }
           ],
         },
         callbacks: {
@@ -427,18 +450,64 @@ CORE BEHAVIORS:
           },
           onmessage: (message: LiveServerMessage) => {
             
-            // Handle Tool Calls fallback (if the model somehow calls a tool)
             if (message.toolCall) {
               const calls = message.toolCall.functionCalls;
               if (calls) {
                 for (const call of calls) {
-                  try {
-                    sessionRef.current?.send({
-                      toolResponse: {
-                        functionResponses: [{ id: call.id, name: call.name, response: { result: "OK" } }]
-                      }
-                    });
-                  } catch (e) {}
+                  if (call.name === 'show_visual') {
+                    const args = call.args as { topic: string };
+                    if (args.topic) {
+                      // Fire and forget (Async loading)
+                      triggerImageSearch(args.topic).catch(console.error);
+                    }
+                    
+                    try {
+                      sessionRef.current?.send({
+                        toolResponse: {
+                          functionResponses: [{ 
+                            id: call.id, 
+                            name: call.name, 
+                            response: { 
+                              result: {
+                                status: "SUCCESS",
+                                message: "The image is now loading on the screen. CRITICAL INSTRUCTION: You MUST start speaking immediately to explain the topic verbally. DO NOT STAY SILENT."
+                              }
+                            } 
+                          }]
+                        }
+                      });
+                    } catch (e) {}
+                  } else if (call.name === 'close_visual') {
+                    setVisualContext(prev => prev ? { ...prev, active: false } : null);
+                    try {
+                      sessionRef.current?.send({
+                        toolResponse: {
+                          functionResponses: [{ id: call.id, name: call.name, response: { result: "Closed." } }]
+                        }
+                      });
+                    } catch (e) {}
+                  } else if (call.name === 'check_visual') {
+                    const currentCtx = visualContextRef.current;
+                    const resultText = currentCtx?.active 
+                      ? `Image titled "${currentCtx.title}". Background info: ${currentCtx.explanation}.`
+                      : `No image currently on screen.`;
+                    try {
+                      sessionRef.current?.send({
+                        toolResponse: {
+                          functionResponses: [{ id: call.id, name: call.name, response: { result: resultText } }]
+                        }
+                      });
+                    } catch (e) {}
+                  } else {
+                    // Fallback
+                    try {
+                      sessionRef.current?.send({
+                        toolResponse: {
+                          functionResponses: [{ id: call.id, name: call.name, response: { result: "OK" } }]
+                        }
+                      });
+                    } catch (e) {}
+                  }
                 }
               }
             }
@@ -483,24 +552,11 @@ CORE BEHAVIORS:
               nextStartTimeRef.current += audioBuffer.duration;
             }
 
-            // MAGIC PHRASE INTERCEPTION FOR TEXT
             if (message.serverContent?.modelTurn?.parts) {
               for (const part of message.serverContent.modelTurn.parts) {
                 if (part.text) {
                   textBufferRef.current += part.text;
-                  console.log("AI Text Output (Buffered):", textBufferRef.current);
-                  
-                  const showMatch = textBufferRef.current.match(/Here is an image of ([^.]+)/i);
-                  if (showMatch && showMatch[1]) {
-                    // Trigger search and clear buffer so we don't trigger multiple times
-                    triggerImageSearch(showMatch[1].trim()).catch(console.error);
-                    textBufferRef.current = textBufferRef.current.replace(showMatch[0], "");
-                  }
-                  
-                  if (textBufferRef.current.toLowerCase().includes("closing the image")) {
-                    setVisualContext(prev => prev ? { ...prev, active: false } : null);
-                    textBufferRef.current = "";
-                  }
+                  console.log("AI Text Output:", part.text);
                 }
               }
             }
