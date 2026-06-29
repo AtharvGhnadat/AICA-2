@@ -473,24 +473,12 @@ CORE BEHAVIORS:
                                   response: { 
                                     result: {
                                       status: "SUCCESS",
-                                      message: "Image is on screen."
+                                      message: "Image is on screen. SYSTEM DIRECTIVE: You MUST immediately speak out loud and explain what this image represents to the student."
                                     }
                                   } 
                                 }]
                               }
                             });
-                            
-                            setTimeout(() => {
-                              sessionRef.current?.send({
-                                clientContent: {
-                                  turns: [{
-                                    role: 'user',
-                                    parts: [{ text: `SYSTEM DIRECTIVE: The image you requested is now visible on the screen. You MUST immediately speak out loud and explain what this image represents to the student.` }]
-                                  }],
-                                  turnComplete: true
-                                }
-                              });
-                            }, 100);
                           } catch (e) {}
                         } else {
                           // Search failed
@@ -503,24 +491,12 @@ CORE BEHAVIORS:
                                   response: { 
                                     result: {
                                       status: "FAILED",
-                                      message: "No image could be found."
+                                      message: "No image could be found. SYSTEM DIRECTIVE: Do not mention an image. Briefly apologize that you couldn't find a picture, and then verbally explain the topic anyway."
                                     }
                                   } 
                                 }]
                               }
                             });
-                            
-                            setTimeout(() => {
-                              sessionRef.current?.send({
-                                clientContent: {
-                                  turns: [{
-                                    role: 'user',
-                                    parts: [{ text: `SYSTEM DIRECTIVE: The image search failed. Do not mention an image. Briefly apologize that you couldn't find a picture, and then verbally explain the topic anyway.` }]
-                                  }],
-                                  turnComplete: true
-                                }
-                              });
-                            }, 100);
                           } catch (e) {}
                         }
                       }).catch(console.error);
