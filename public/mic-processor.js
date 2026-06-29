@@ -12,9 +12,9 @@ class MicProcessor extends AudioWorkletProcessor {
     this.port.onmessage = (event) => {
       if (event.data && event.data.type === 'SET_SENSITIVITY') {
         // sensitivity is 0 to 100.
-        // 100 means picks up everything -> threshold ~ 0.001
-        // 0 means only very loud -> threshold ~ 0.05
-        this.threshold = 0.001 + ((100 - event.data.value) / 100) * 0.049;
+        // 100 means picks up everything -> threshold ~ 0.0001
+        // 0 means only very loud -> threshold ~ 0.02
+        this.threshold = 0.0001 + ((100 - event.data.value) / 100) * 0.02;
       }
     };
   }
