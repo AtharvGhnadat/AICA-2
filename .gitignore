@@ -13,6 +13,8 @@ dist-ssr
 *.local
 .env
 .env.*
+server/.env
+android/local.properties
 # Electron build output (large binaries)
 release/
 *.AppImage
