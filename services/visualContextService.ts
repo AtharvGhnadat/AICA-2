@@ -26,7 +26,7 @@ export const visualContextService = {
       
       const timeoutId = setTimeout(() => {
         abortController.abort();
-      }, 3500); // 3500ms timeout for ultra-fast UX
+      }, 8000); // 8000ms timeout to allow fallbacks to finish gracefully
 
       const response = await fetch(`${backendUrl}/api/image-search`, {
         method: 'POST',
@@ -76,68 +76,45 @@ export const visualContextService = {
       
       console.warn('Backend image search failed, falling back to direct Serper API...', error.message);
       
-      // Fallback to direct client-side Serper API call if backend is unavailable (e.g. testing on Vercel)
+      // Fallback to Vercel Serverless Function if Raspberry Pi backend is unavailable (e.g., testing on Vercel)
       const finalSerperApiKey = serperApiKey || import.meta.env.VITE_SERPER_API_KEY || (process.env as any).SERPER_API_KEY;
-      if (!finalSerperApiKey) {
-        console.warn('No Serper API key provided for fallback.');
-        return null;
-      }
-
+      
       try {
-        let query = trimmedQ.replace(/^(what is|what's|who is|who's|explain|tell me about|show me|how does|what does|diagram of|picture of|image of|can you show( me)?( a)?( picture| image)?( of)?)\s+/i, '')
-          .replace(/^(a|an|the)\s+/i, '')
-          .replace(/\?$/, '')
-          .trim();
-        let rawTitle = query.charAt(0).toUpperCase() + query.slice(1);
-
-        console.log("Attempting Serper via CORS proxy with API Key ending in:", finalSerperApiKey.slice(-4));
-        const fallbackResponse = await fetch('https://corsproxy.io/?https://google.serper.dev/images', {
+        console.log("Attempting Serper via Vercel Serverless Function...");
+        const vercelResponse = await fetch('/api/image-search', {
           method: 'POST',
           headers: {
-            'X-API-KEY': finalSerperApiKey,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ q: query, gl: 'in', hl: 'en', num: 10 }),
+          body: JSON.stringify({ question: trimmedQ, serperApiKey: finalSerperApiKey }),
           signal: abortController.signal
         });
 
-        if (!fallbackResponse.ok) return null;
-        
-        const fallbackData = await fallbackResponse.json();
-        const results = fallbackData.images;
-        
-        if (!results || results.length === 0) return null;
-
-        let bestImage = results[0];
-        for (let i = 0; i < Math.min(5, results.length); i++) {
-           if (results[i].imageUrl && !results[i].imageUrl.includes('fbsbx.com') && !results[i].imageUrl.includes('lookaside')) {
-             bestImage = results[i];
-             break;
-           }
+        if (vercelResponse.ok) {
+          const vercelData = await vercelResponse.json();
+          if (vercelData.success && vercelData.imageUrl) {
+            const result: Partial<VisualContext> = {
+              title: vercelData.title,
+              explanation: '',
+              imageUrl: vercelData.imageUrl,
+              thumbnailUrl: vercelData.thumbnailUrl,
+              searchQuery: vercelData.searchQuery,
+              imageSource: 'serper',
+              active: true
+            };
+            if (searchCache.size >= 10) {
+              const firstKey = searchCache.keys().next().value;
+              if (firstKey) searchCache.delete(firstKey);
+            }
+            searchCache.set(trimmedQ, result);
+            return result;
+          }
         }
-
-        const result: Partial<VisualContext> = {
-          title: rawTitle || 'Visual Context',
-          explanation: '', // UI no longer uses this
-          imageUrl: bestImage.imageUrl || bestImage.thumbnailUrl,
-          thumbnailUrl: bestImage.thumbnailUrl,
-          searchQuery: query,
-          imageSource: 'serper',
-          active: true
-        };
-
-        if (searchCache.size >= 10) {
-          const firstKey = searchCache.keys().next().value;
-          if (firstKey) searchCache.delete(firstKey);
+      } catch (vercelError: any) {
+        if (vercelError.name !== 'AbortError') {
+          console.error('Vercel API fallback failed:', vercelError);
         }
-        searchCache.set(trimmedQ, result);
-        
-        return result;
-
-      } catch (fallbackError: any) {
-        if (fallbackError.name !== 'AbortError') {
-          console.error('Direct Serper API fallback also failed:', fallbackError);
-        }
+      }
         
         // Final Fallback: Wikipedia API (No API key needed, never has CORS issues)
         try {
