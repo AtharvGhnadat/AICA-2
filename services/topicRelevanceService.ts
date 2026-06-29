@@ -1,26 +1,54 @@
 export const topicRelevanceService = {
-  async checkRelevance(currentTopic: string, newUserText: string): Promise<{ related: boolean, action: string }> {
+  async checkRelevance(currentTopic: string, newUserText: string): Promise<{related: boolean, action: string}> {
     if (!currentTopic || !newUserText) {
       return { related: false, action: 'close_visual_panel' };
     }
 
-    try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-      const response = await fetch(`${backendUrl}/api/topic-relevance`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentTopic, newUserText })
-      });
+    const text = newUserText.toLowerCase().trim();
 
-      if (!response.ok) {
-        return { related: false, action: 'close_visual_panel' };
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      // Fail safely by assuming it's unrelated and closing the visual
+    // 1. Direct closing commands
+    const closeCommands = ['close', 'stop', 'okay thanks', 'ok thanks', 'exit', 'hide', 'dismiss', 'clear', 'nevermind'];
+    if (closeCommands.some(cmd => text.includes(cmd))) {
       return { related: false, action: 'close_visual_panel' };
     }
+
+    // 2. Greetings and conversational filler
+    const greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening', 'how are you'];
+    if (greetings.includes(text)) {
+      return { related: false, action: 'close_visual_panel' };
+    }
+
+    // 3. Unrelated actions/questions
+    const unrelatedPatterns = [
+      /^tell me a joke/i,
+      /what is your name/i,
+      /who made you/i,
+      /move forward/i,
+      /open settings/i,
+      /sing a song/i,
+      /what time is it/i,
+      /turn (on|off)/i,
+      /^play /i
+    ];
+    if (unrelatedPatterns.some(pattern => pattern.test(text))) {
+      return { related: false, action: 'close_visual_panel' };
+    }
+
+    const currentWords = currentTopic.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+    const hasOverlap = currentWords.some(word => text.includes(word));
+    
+    if (hasOverlap) {
+      return { related: true, action: 'keep_open' };
+    }
+
+    if (/^(what is|explain|show me|tell me about|how does|can you)/.test(text)) {
+      return { related: false, action: 'close_visual_panel' }; 
+    }
+
+    if (text.length < 15) {
+       return { related: true, action: 'keep_open' };
+    }
+
+    return { related: false, action: 'close_visual_panel' };
   }
 };
