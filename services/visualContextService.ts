@@ -77,7 +77,8 @@ export const visualContextService = {
       console.warn('Backend image search failed, falling back to direct Serper API...', error.message);
       
       // Fallback to direct client-side Serper API call if backend is unavailable (e.g. testing on Vercel)
-      if (!serperApiKey) {
+      const finalSerperApiKey = serperApiKey || import.meta.env.VITE_SERPER_API_KEY || (process.env as any).SERPER_API_KEY;
+      if (!finalSerperApiKey) {
         console.warn('No Serper API key provided for fallback.');
         return null;
       }
@@ -89,11 +90,11 @@ export const visualContextService = {
           .trim();
         let rawTitle = query.charAt(0).toUpperCase() + query.slice(1);
 
-        console.log("Attempting Serper via CORS proxy with API Key ending in:", serperApiKey.slice(-4));
+        console.log("Attempting Serper via CORS proxy with API Key ending in:", finalSerperApiKey.slice(-4));
         const fallbackResponse = await fetch('https://corsproxy.io/?https://google.serper.dev/images', {
           method: 'POST',
           headers: {
-            'X-API-KEY': serperApiKey,
+            'X-API-KEY': finalSerperApiKey,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({ q: query, gl: 'in', hl: 'en', num: 10 }),

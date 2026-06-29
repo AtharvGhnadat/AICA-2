@@ -24,12 +24,13 @@ export default defineConfig(({ mode }) => {
       }
     },
     optimizeDeps: {
-      exclude: ['android']
+      entries: ['index.html']
     },
     plugins: [react(), tailwindcss(), basicSsl()],
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      'process.env.SERPER_API_KEY': JSON.stringify(env.SERPER_API_KEY || env.VITE_SERPER_API_KEY || '')
     },
     resolve: {
       alias: {
