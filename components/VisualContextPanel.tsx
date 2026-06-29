@@ -97,11 +97,6 @@ export const VisualContextPanel: React.FC<VisualContextPanelProps> = ({
               {context.title}
             </h2>
           )}
-          {context?.explanation && (
-            <p className="text-slate-300 text-xl md:text-2xl leading-relaxed font-light transition-opacity duration-700 opacity-100">
-              {context.explanation}
-            </p>
-          )}
         </div>
       </TouchScrollArea>
     </div>

@@ -233,7 +233,7 @@ const App: React.FC = () => {
   const triggerImageSearch = async (text: string): Promise<Partial<VisualContext> | null> => {
     setVisualStatus('loading');
     setVisualContext({ active: true, searchQuery: text, imageSource: 'none', title: '', explanation: '', imageUrl: '' });
-    const result = await visualContextService.searchImage(text, settingsRef.current.serperApiKey);
+    const result = await visualContextService.searchImage(text);
     if (result) {
       setVisualContext({ ...result, active: true });
       setVisualStatus('success');
@@ -362,10 +362,10 @@ CRITICAL IDENTITY & LANGUAGE:
 
 CORE BEHAVIORS:
 1. EXTREME SPEED: Respond instantly. Keep answers short (1-2 sentences) unless asked for detail.
-2. VISUAL TEACHING: When explaining educational topics, you MUST call the "show_visual" tool to display an image.
-CRITICAL RULE: The moment you receive the tool response for "show_visual", you MUST immediately generate a voice response explaining the topic. Do not stay silent.
-3. CLOSING: To close the screen, call the "close_visual" tool.
-4. MEMORY: If you forget what image is on screen, call the "check_visual" tool.`,
+2. VISUAL INTENT DETECTION: You are the visual intent detector! If the user asks ANY educational or indirect question (e.g., "Explain OSI model", "What is photosynthesis?", "Process of data collection"), you MUST call the "show_visual" tool to display a diagram. Do not wait for them to explicitly say "show me an image".
+3. IMAGE EXPLANATION: When you call "show_visual" and the image appears, your voice response MUST explain the specific visual representation on the screen in a student-friendly way, rather than just giving a generic text answer.
+4. CLOSING: To close the screen, call the "close_visual" tool if the user changes to an unrelated topic (e.g., "Tell me a joke", "How are you?").
+5. MEMORY: If you forget what image is on screen, call the "check_visual" tool.`,
           tools: [
             { googleSearch: {} },
             {
@@ -470,12 +470,25 @@ CRITICAL RULE: The moment you receive the tool response for "show_visual", you M
                             response: { 
                               result: {
                                 status: "SUCCESS",
-                                message: "The image is now loading on the screen. CRITICAL INSTRUCTION: You MUST start speaking immediately to explain the topic verbally. DO NOT STAY SILENT."
+                                message: "Image is on screen."
                               }
                             } 
                           }]
                         }
                       });
+                      
+                      // CRITICAL: Force the AI to speak immediately after the tool call!
+                      setTimeout(() => {
+                        sessionRef.current?.send({
+                          clientContent: {
+                            turns: [{
+                              role: 'user',
+                              parts: [{ text: `SYSTEM DIRECTIVE: The image you requested is now visible on the screen. You MUST immediately speak out loud and explain what this image represents to the student.` }]
+                            }],
+                            turnComplete: true
+                          }
+                        });
+                      }, 100);
                     } catch (e) {}
                   } else if (call.name === 'close_visual') {
                     setVisualContext(prev => prev ? { ...prev, active: false } : null);
