@@ -22,66 +22,22 @@ export const visualContextService = {
     activeAbortController = abortController;
 
     try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-      
-      const timeoutId = setTimeout(() => {
-        abortController.abort();
-      }, 8000); // 8000ms timeout to allow fallbacks to finish gracefully
-
-      const response = await fetch(`${backendUrl}/api/image-search`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ question: trimmedQ }),
-        signal: abortController.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`Backend returned ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      if (!data.success || !data.imageUrl) {
-        return null;
-      }
-
-      const result: Partial<VisualContext> = {
-        title: data.title,
-        explanation: data.explanation,
-        imageUrl: data.imageUrl,
-        thumbnailUrl: data.thumbnailUrl,
-        searchQuery: data.searchQuery,
-        imageSource: data.imageSource,
-        active: true
-      };
-
-      // LRU Cache logic
-      if (searchCache.size >= 10) {
-        const firstKey = searchCache.keys().next().value;
-        if (firstKey) searchCache.delete(firstKey);
-      }
-      searchCache.set(trimmedQ, result);
-      
-      return result;
-
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        console.log('Image search aborted or timed out.');
-        return null;
-      }
-      
-      console.warn('Backend image search failed, falling back to direct Serper API...', error.message);
-      
-      // Fallback to Vercel Serverless Function if Raspberry Pi backend is unavailable (e.g., testing on Vercel)
+      // 1. Try Vercel Serverless Function first (avoids CORS issues on Android entirely)
       const finalSerperApiKey = serperApiKey || import.meta.env.VITE_SERPER_API_KEY || (process.env as any).SERPER_API_KEY;
       
       try {
-        console.log("Attempting Serper via Vercel Serverless Function...");
-        const vercelResponse = await fetch('/api/image-search', {
+        console.log("Attempting Serper via Serverless API...");
+        
+        const timeoutId = setTimeout(() => {
+          abortController.abort();
+        }, 8000); // 8000ms timeout for the network requests
+
+        // In Capacitor (Android), this hits the Vercel backend if mapped, or local relative path if bundled with Vercel API hosted somewhere.
+        // Wait, if it's bundled offline, a relative path `/api/image-search` will fail because Android doesn't run Node.js locally.
+        // We must point to the Vercel production URL for the API.
+        const apiUrl = import.meta.env.VITE_VERCEL_API_URL || 'https://aica-2.vercel.app/api/image-search';
+
+        const vercelResponse = await fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -89,6 +45,8 @@ export const visualContextService = {
           body: JSON.stringify({ question: trimmedQ, serperApiKey: finalSerperApiKey }),
           signal: abortController.signal
         });
+        
+        clearTimeout(timeoutId);
 
         if (vercelResponse.ok) {
           const vercelData = await vercelResponse.json();
@@ -104,16 +62,18 @@ export const visualContextService = {
             };
             if (searchCache.size >= 10) {
               const firstKey = searchCache.keys().next().value;
-              if (firstKey) searchCache.delete(firstKey);
+              if (searchCache.delete) searchCache.delete(firstKey);
             }
             searchCache.set(trimmedQ, result);
             return result;
           }
         }
       } catch (vercelError: any) {
-        if (vercelError.name !== 'AbortError') {
-          console.error('Vercel API fallback failed:', vercelError);
+        if (vercelError.name === 'AbortError') {
+          console.log('Image search aborted or timed out.');
+          return null;
         }
+        console.error('Vercel API fallback failed:', vercelError);
       }
         
         // Final Fallback: Wikipedia API (No API key needed, never has CORS issues)
