@@ -166,6 +166,7 @@ const App: React.FC = () => {
   const settingsRef = useRef<Settings>(DEFAULT_SETTINGS);
   const isConnectedRef = useRef(false);
   const isMutedRef = useRef(false);
+  const isTurnCompleteRef = useRef(true);
   const reconnectAttemptsRef = useRef(0);
   const textBufferRef = useRef<string>("");
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -545,6 +546,7 @@ CORE BEHAVIORS:
             }
 
             if (message.serverContent?.turnComplete) {
+              isTurnCompleteRef.current = true;
               if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
               if (activeSourcesRef.current.size === 0) {
                 transitionToListening();
@@ -555,6 +557,7 @@ CORE BEHAVIORS:
 
             const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (audioData) {
+              isTurnCompleteRef.current = false;
               if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
               setStatus('speaking');
 
@@ -575,7 +578,7 @@ CORE BEHAVIORS:
 
               source.onended = () => {
                 activeSourcesRef.current.delete(source);
-                if (activeSourcesRef.current.size === 0) {
+                if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
                   transitionToListening();
                 }
               };
@@ -587,6 +590,7 @@ CORE BEHAVIORS:
             if (message.serverContent?.modelTurn?.parts) {
               for (const part of message.serverContent.modelTurn.parts) {
                 if (part.text) {
+                  isTurnCompleteRef.current = false;
                   textBufferRef.current += part.text;
                   console.log("AI Text Output:", part.text);
                 }
@@ -594,6 +598,7 @@ CORE BEHAVIORS:
             }
 
             if (message.serverContent?.interrupted) {
+              isTurnCompleteRef.current = true;
               stopActiveAudio();
               if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
               if (postSpeechTimerRef.current) { clearTimeout(postSpeechTimerRef.current); postSpeechTimerRef.current = null; }
