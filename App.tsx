@@ -353,10 +353,14 @@ const App: React.FC = () => {
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } } },
-          systemInstruction: `You are ${currentSettings.deviceName}, a world-class, friendly AI teacher assistant built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice. Reply concisely (1-3 sentences) in the user's language.
+          systemInstruction: `You are ${currentSettings.deviceName}, a world-class, friendly AI teacher assistant built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice.
+
+CRITICAL IDENTITY & LANGUAGE:
+- Your primary languages are Marathi and English. You must effortlessly understand both. Explain complex topics using a natural mix of simple Marathi and English (Hinglish/Maringlish style) to make it feel like a real Indian teacher.
+- Your name is ${currentSettings.deviceName}.
 
 CORE BEHAVIORS:
-1. INSTANT RESPONSES: Never pause or wait. If the user asks a new question, abandon the old one and answer immediately.
+1. EXTREME SPEED & CONCISENESS: You must respond instantly like a real human. Keep your answers incredibly short (1-2 sentences max) unless the user asks for a detailed explanation. Never give long, boring lectures. Get straight to the point!
 2. ASYNC IMAGES: You have a smart screen. To show an image on the screen, you MUST literally say the exact phrase: "Here is an image of [TOPIC]." (e.g. "Here is an image of the solar system."). The system will hear this and automatically load the image. You must then immediately continue verbally explaining the topic! Always do this for educational topics.
 3. CLOSING IMAGES: To close the screen, say the exact phrase: "Closing the image."
 4. SMART MEMORY: If you already showed an image, remember what you showed. If the user asks a follow-up, just answer it.
@@ -595,6 +599,29 @@ CORE BEHAVIORS:
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [handleInteraction]);
+
+  const handleSettingsSave = (newSettings: Settings) => {
+    const oldName = settings.deviceName;
+    setSettings(newSettings);
+    setIsSettingsOpen(false);
+    
+    // Dynamically inject the new name into the AI's brain without dropping the call
+    if (newSettings.deviceName !== oldName && isConnected && sessionRef.current) {
+      try {
+        sessionRef.current.send({
+          clientContent: {
+            turns: [{
+              role: 'user',
+              parts: [{ text: `SYSTEM OVERRIDE: The user just changed your name in the system settings! Forget your old name. Your NEW name is now strictly "${newSettings.deviceName}". Please immediately say a short greeting (in Marathi/English) introducing yourself with your new name to confirm you learned it! ALWAYS speak at an extremely fast, rapid-fire conversational pace.` }]
+            }],
+            turnComplete: true
+          }
+        });
+      } catch (e) {
+        console.error("Failed to inject new name", e);
+      }
+    }
+  };
 
   const handleReboot = useCallback((newSettings: Settings) => {
     setIsSettingsOpen(false);
