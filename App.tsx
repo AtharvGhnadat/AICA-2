@@ -233,7 +233,7 @@ const App: React.FC = () => {
   const triggerImageSearch = async (text: string): Promise<Partial<VisualContext> | null> => {
     setVisualStatus('loading');
     setVisualContext({ active: true, searchQuery: text, imageSource: 'none', title: '', explanation: '', imageUrl: '' });
-    const result = await visualContextService.searchImage(text);
+    const result = await visualContextService.searchImage(text, settingsRef.current.serperApiKey);
     if (result) {
       setVisualContext({ ...result, active: true });
       setVisualStatus('success');
@@ -457,39 +457,70 @@ CORE BEHAVIORS:
                   if (call.name === 'show_visual') {
                     const args = call.args as { topic: string };
                     if (args.topic) {
-                      // Fire and forget (Async loading)
-                      triggerImageSearch(args.topic).catch(console.error);
-                    }
-                    
-                    try {
-                      sessionRef.current?.send({
-                        toolResponse: {
-                          functionResponses: [{ 
-                            id: call.id, 
-                            name: call.name, 
-                            response: { 
-                              result: {
-                                status: "SUCCESS",
-                                message: "Image is on screen."
+                      // Await the search so the AI knows if it succeeded or failed!
+                      triggerImageSearch(args.topic).then((result) => {
+                        if (result) {
+                          try {
+                            sessionRef.current?.send({
+                              toolResponse: {
+                                functionResponses: [{ 
+                                  id: call.id, 
+                                  name: call.name, 
+                                  response: { 
+                                    result: {
+                                      status: "SUCCESS",
+                                      message: "Image is on screen."
+                                    }
+                                  } 
+                                }]
                               }
-                            } 
-                          }]
+                            });
+                            
+                            setTimeout(() => {
+                              sessionRef.current?.send({
+                                clientContent: {
+                                  turns: [{
+                                    role: 'user',
+                                    parts: [{ text: `SYSTEM DIRECTIVE: The image you requested is now visible on the screen. You MUST immediately speak out loud and explain what this image represents to the student.` }]
+                                  }],
+                                  turnComplete: true
+                                }
+                              });
+                            }, 100);
+                          } catch (e) {}
+                        } else {
+                          // Search failed
+                          try {
+                            sessionRef.current?.send({
+                              toolResponse: {
+                                functionResponses: [{ 
+                                  id: call.id, 
+                                  name: call.name, 
+                                  response: { 
+                                    result: {
+                                      status: "FAILED",
+                                      message: "No image could be found."
+                                    }
+                                  } 
+                                }]
+                              }
+                            });
+                            
+                            setTimeout(() => {
+                              sessionRef.current?.send({
+                                clientContent: {
+                                  turns: [{
+                                    role: 'user',
+                                    parts: [{ text: `SYSTEM DIRECTIVE: The image search failed. Do not mention an image. Briefly apologize that you couldn't find a picture, and then verbally explain the topic anyway.` }]
+                                  }],
+                                  turnComplete: true
+                                }
+                              });
+                            }, 100);
+                          } catch (e) {}
                         }
-                      });
-                      
-                      // CRITICAL: Force the AI to speak immediately after the tool call!
-                      setTimeout(() => {
-                        sessionRef.current?.send({
-                          clientContent: {
-                            turns: [{
-                              role: 'user',
-                              parts: [{ text: `SYSTEM DIRECTIVE: The image you requested is now visible on the screen. You MUST immediately speak out loud and explain what this image represents to the student.` }]
-                            }],
-                            turnComplete: true
-                          }
-                        });
-                      }, 100);
-                    } catch (e) {}
+                      }).catch(console.error);
+                    }
                   } else if (call.name === 'close_visual') {
                     setVisualContext(prev => prev ? { ...prev, active: false } : null);
                     try {
