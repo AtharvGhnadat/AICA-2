@@ -352,18 +352,15 @@ const App: React.FC = () => {
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } } },
-          systemInstruction: `You are ${currentSettings.deviceName}, a friendly male AI companion robot built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice. Reply in 1-2 sentences, match user's language (Marathi/Hindi/English). Be concise and natural. Your name is ${currentSettings.deviceName}. 
+          systemInstruction: `You are ${currentSettings.deviceName}, a world-class, friendly AI teacher assistant built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice. Reply concisely (1-3 sentences) in the user's language.
 
-CRITICAL RULES:
-1. NO QUEUING: If the user asks multiple questions in a row, or interrupts you with a new question while you are thinking, COMPLETELY ABANDON the old question and ONLY answer the absolute newest question. Never answer both.
-2. INSTANT STOP: If the user says "stop", "stop talking", or interrupts you, stop your current explanation immediately and wait for their next command.
-3. AUTO-IMAGES: When the user asks you to explain an educational topic (e.g., "explain photosynthesis", "what is the taj mahal", "tell me about the solar system"), ALWAYS use the show_visual_context tool to pull up a helpful image while you explain it. You do not need to wait for them to say "show me an image", just do it automatically for educational topics. Wait for the tool response, then explain the image.
-4. IMAGE MEMORY: YOU control the screen. When you use the show_visual_context tool, YOU are showing the user an image. If the user asks 'explain the image' or asks a follow-up question, they are talking about the image YOU just showed them. NEVER say 'I haven't shown an image' or 'I can't see images'. If you forgot what image is currently on the screen, ALWAYS use the get_current_image_info tool to check your memory, and then explain it!
-5. TOPIC SWITCHING: If an image is currently visible on the screen, but the user asks you to explain a COMPLETELY NEW and unrelated topic, you MUST call the show_visual_context tool again with the new topic to change the image on the screen.
-6. AUTO-CLOSE: If the user shifts the conversation to casual chit-chat (e.g., "how are you?", "tell me a joke") or explicitly asks to close the image, ALWAYS use the close_visual_context tool to clear the screen.
-7. INTERACTIVE TEACHER: Do not give long lectures. Explain concepts simply and briefly, and frequently ask a short follow-up question to check the user's understanding (e.g., "Does that make sense?", "Can you guess why?").
-8. EMPATHY & ENCOURAGEMENT: If the user is struggling to understand, or answers a question wrong, be highly encouraging, patient, and use an empathetic tone.
-9. CHILD-SAFE GUARDRAILS: If the user asks about violent, explicit, or highly inappropriate topics, politely refuse to answer and gently pivot the conversation back to educational or safe topics.`,
+CORE BEHAVIORS:
+1. INSTANT RESPONSES: Never pause or wait. If the user asks a new question, abandon the old one and answer immediately.
+2. ASYNC IMAGES: When explaining educational topics (e.g. photosynthesis, the solar system, history), ALWAYS call the show_visual_context tool to bring up an image.
+CRITICAL: Do NOT wait for the image to load. The moment you call the tool, IMMEDIATELY start explaining the topic using your own vast internal knowledge. The system will load the image in the background while you are speaking.
+3. INTERACTIVE TEACHER: Explain concepts simply and frequently ask quick follow-up questions to check understanding (e.g. "Does that make sense?").
+4. SMART MEMORY: You control the screen. If you already showed an image and the user asks "What is that red part?", they mean the image YOU just put on the screen. Use get_current_image_info if you forget what it is.
+5. TOPIC SWITCH: If they ask about a completely new topic, call show_visual_context with the new topic to swap the image on the screen, and start explaining it immediately.`,
           tools: [
             { googleSearch: {} },
             {
@@ -449,39 +446,36 @@ CRITICAL RULES:
                   if (call.name === 'show_visual_context') {
                     const args = call.args as { topic: string };
                     
-                    const handleSync = async () => {
-                      let searchResult: Partial<VisualContext> | null | void = null;
-                      if (args.topic) {
-                        // Wait for the ultra-fast search to complete
-                        searchResult = await triggerImageSearch(args.topic).catch(console.error);
-                      }
-                      
-                      let responseObj: any;
-                      if (searchResult) {
-                        responseObj = {
-                          status: "SUCCESS",
-                          action_required: "YOU MUST NOW VERBALLY EXPLAIN THIS TOPIC TO THE USER.",
-                          image_title: searchResult.title,
-                          background_knowledge: searchResult.explanation
-                        };
-                      } else {
-                        responseObj = {
-                          status: "ERROR",
-                          action_required: "VERBALLY APOLOGIZE TO THE USER AND EXPLAIN THE TOPIC WITHOUT AN IMAGE."
-                        };
+                    const handleSync = () => {
+                      if (!args.topic) {
+                        try {
+                          sessionRef.current?.send({
+                            toolResponse: {
+                              functionResponses: [{ id: call.id, name: call.name, response: { status: "ERROR", message: "No topic provided" } }]
+                            }
+                          });
+                        } catch(e) {}
+                        return;
                       }
 
+                      // 1. INSTANT RESPONSE: Tell the AI to start speaking immediately using its own knowledge
                       try {
                         sessionRef.current?.send({
                           toolResponse: {
                             functionResponses: [{
                               id: call.id,
                               name: call.name,
-                              response: responseObj
+                              response: { 
+                                status: "SEARCH_STARTED", 
+                                action_required: `The system is loading an image of ${args.topic} in the background. DO NOT WAIT. Start speaking IMMEDIATELY and explain ${args.topic} using your internal knowledge!` 
+                              }
                             }]
                           }
                         });
                       } catch (e) {}
+
+                      // 2. ASYNC LOAD: Trigger image search completely in the background without blocking
+                      triggerImageSearch(args.topic).catch(console.error);
                     };
                     handleSync();
                   } else if (call.name === 'close_visual_context') {
