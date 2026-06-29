@@ -456,34 +456,29 @@ CRITICAL RULES:
                         searchResult = await triggerImageSearch(args.topic).catch(console.error);
                       }
                       
-                      const responseText = searchResult 
-                        ? `SUCCESS: Image titled "${searchResult.title}" is now visible to the user.`
-                        : `ERROR: Failed to find an image.`;
+                      let responseObj: any;
+                      if (searchResult) {
+                        responseObj = {
+                          status: "SUCCESS",
+                          action_required: "YOU MUST NOW VERBALLY EXPLAIN THIS TOPIC TO THE USER.",
+                          image_title: searchResult.title,
+                          background_knowledge: searchResult.explanation
+                        };
+                      } else {
+                        responseObj = {
+                          status: "ERROR",
+                          action_required: "VERBALLY APOLOGIZE TO THE USER AND EXPLAIN THE TOPIC WITHOUT AN IMAGE."
+                        };
+                      }
 
                       try {
-                        // 1. Send the required tool response
                         sessionRef.current?.send({
                           toolResponse: {
                             functionResponses: [{
                               id: call.id,
                               name: call.name,
-                              response: { result: responseText }
+                              response: responseObj
                             }]
-                          }
-                        });
-                        
-                        // 2. FORCE the AI to speak by sending a hidden user prompt!
-                        const followUpPrompt = searchResult
-                          ? `I can see the image of "${searchResult.title}" on my screen now. Please explain it to me using this background info: ${searchResult.explanation}`
-                          : `You couldn't find an image. Please just explain the topic verbally instead.`;
-                          
-                        sessionRef.current?.send({
-                          clientContent: {
-                            turns: [{
-                              role: 'user',
-                              parts: [{ text: followUpPrompt }]
-                            }],
-                            turnComplete: true
                           }
                         });
                       } catch (e) {}
