@@ -801,7 +801,16 @@ CORE BEHAVIORS:
               if ((window as any).electronAPI) {
                 (window as any).electronAPI.close();
               } else {
-                CapacitorApp.exitApp();
+                try {
+                  CapacitorApp.exitApp();
+                } catch (err) {
+                  // Fallbacks if they haven't rebuilt the APK yet
+                  if ((navigator as any).app) {
+                    (navigator as any).app.exitApp();
+                  } else {
+                    window.close();
+                  }
+                }
               }
             }}
             className="w-10 h-10 flex items-center justify-center rounded-xl bg-zinc-800 hover:bg-red-600 transition-colors border-2 border-zinc-600"
