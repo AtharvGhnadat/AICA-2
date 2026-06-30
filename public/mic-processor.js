@@ -9,11 +9,13 @@ class MicProcessor extends AudioWorkletProcessor {
     this.framesSinceLastLoud = 1000;
     this.holdFrames = 50; // ~130ms hold time to drastically speed up silence detection
     
+    // Performance optimization: Buffer audio to avoid spamming postMessage 375 times a second
+    this.bufferSize = 2048;
+    this.audioBuffer = new Float32Array(this.bufferSize);
+    this.bufferIndex = 0;
+    
     this.port.onmessage = (event) => {
       if (event.data && event.data.type === 'SET_SENSITIVITY') {
-        // sensitivity is 0 to 100.
-        // 100 means picks up everything -> threshold ~ 0.0001
-        // 0 means only very loud -> threshold ~ 0.02
         this.threshold = 0.0001 + ((100 - event.data.value) / 100) * 0.02;
       }
     };
@@ -23,7 +25,7 @@ class MicProcessor extends AudioWorkletProcessor {
     const input = inputs[0];
     if (input && input.length > 0) {
       const channelData = input[0];
-      // Only send if there's actual data
+      // Only process if there's actual data
       if (channelData && channelData.length > 0) {
         let sumSquare = 0;
         for (let i = 0; i < channelData.length; i++) {
@@ -44,11 +46,16 @@ class MicProcessor extends AudioWorkletProcessor {
           this.port.postMessage({ event: 'speech_end' });
         }
 
-        // Always send audio data, either real or zeros
-        if (this.framesSinceLastLoud > this.holdFrames) {
-          this.port.postMessage({ type: 'audio', data: new Float32Array(channelData.length) });
-        } else {
-          this.port.postMessage({ type: 'audio', data: new Float32Array(channelData) });
+        // Fill the internal buffer (using zeros if muted/silent)
+        const isSilent = this.framesSinceLastLoud > this.holdFrames;
+        for (let i = 0; i < channelData.length; i++) {
+          this.audioBuffer[this.bufferIndex++] = isSilent ? 0 : channelData[i];
+          
+          if (this.bufferIndex >= this.bufferSize) {
+            // Send chunk to main thread (huge CPU optimization)
+            this.port.postMessage({ type: 'audio', data: new Float32Array(this.audioBuffer) });
+            this.bufferIndex = 0;
+          }
         }
       }
     }
