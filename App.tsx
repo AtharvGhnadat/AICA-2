@@ -388,9 +388,9 @@ CRITICAL IDENTITY & LANGUAGE:
 CORE BEHAVIORS:
 1. EXTREME SPEED & PARALLEL EXPLANATION: Respond instantly. Keep answers short (1-2 sentences). When asked to explain something, IMMEDIATELY start explaining the concept out loud. Do NOT wait for an image to appear to start teaching!
 2. VISUAL INTENT DETECTION: If the user asks for a NEW topic (e.g., "Explain OSI model"), you MUST call "show_visual" IN PARALLEL while you start your verbal explanation. Do not announce that you are showing an image. Just call the tool and keep talking. HOWEVER, if an image is ALREADY on screen and the user asks "explain this image", DO NOT call "show_visual" again! Just explain the current image verbally.
-3. IMAGE EXPLANATION: When "show_visual" is called and an image appears, start explaining it in a student-friendly way based on the topic you searched.
+3. IMAGE EXPLANATION: When "show_visual" is called and an image appears, explain it in a student-friendly way. If you forget what's currently on screen, call "check_visual".
 4. CLOSING: To close the screen, call the "close_visual" tool if the user changes to an unrelated topic.
-5. MEMORY & AWARENESS: You CANNOT physically see the user's screen. If the user asks "what is this?", "explain this image", or asks ANY question about the image currently on their screen, YOU MUST IMMEDIATELY CALL THE "check_visual" TOOL! Do not say "I can't see the image" and do not guess. ALWAYS call "check_visual" to get the title of the current image, and then answer the user's question based on that title!
+5. MEMORY: If you forget what image is on screen, call the "check_visual" tool.
 6. SINGLE QUESTION FOCUS: If you hear a "stack of questions" or a long rambling conversation (like the user talking to friends), DO NOT try to answer everything! ONLY respond to the final, most direct question addressed to you. Ignore all background chatter.`,
           tools: [
             { googleSearch: {} },
@@ -443,16 +443,11 @@ CORE BEHAVIORS:
               const TARGET_BUFFER_LENGTH = 4096; // Accumulate ~85ms to prevent WebSocket spam
 
               workletNode.port.onmessage = (ev: MessageEvent<Float32Array>) => {
-                if (!isConnectedRef.current || isMutedRef.current) return;
+                // Completely drop microphone input if user manually paused, or if the AI is currently speaking!
+                // This prevents the AI from being interrupted mid-sentence.
+                if (!isConnectedRef.current || isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') return;
 
-                // To prevent the WebSocket from timing out during long AI speeches, we MUST keep sending data.
-                // However, to prevent background noise from interrupting the AI, we send pure silence!
-                let dataToPush = ev.data;
-                if (statusRef.current === 'speaking' || statusRef.current === 'thinking') {
-                  dataToPush = new Float32Array(ev.data.length); // Array of zeroes (pure silence)
-                }
-
-                micBuffer.push(dataToPush);
+                micBuffer.push(ev.data);
                 micBufferLength += ev.data.length;
 
                 if (micBufferLength >= TARGET_BUFFER_LENGTH) {
@@ -491,25 +486,45 @@ CORE BEHAVIORS:
                   if (call.name === 'show_visual') {
                     const args = call.args as { topic: string };
                     if (args.topic) {
-                      triggerImageSearch(args.topic).catch(console.error);
-                      
-                      // Immediately tell the AI the image is loading so it starts talking INSTANTLY!
-                      try {
-                        sessionRef.current?.send({
-                          toolResponse: {
-                            functionResponses: [{ 
-                              id: call.id, 
-                              name: call.name, 
-                              response: { 
-                                result: {
-                                  status: "LOADING",
-                                  message: "The image is now loading on the user's screen. START EXPLAINING VERBALLY IMMEDIATELY. Do not wait."
-                                }
-                              } 
-                            }]
-                          }
-                        });
-                      } catch (e) {}
+                      // Await the search so the AI knows if it succeeded or failed!
+                      triggerImageSearch(args.topic).then((result) => {
+                        if (result) {
+                          try {
+                            sessionRef.current?.send({
+                              toolResponse: {
+                                functionResponses: [{ 
+                                  id: call.id, 
+                                  name: call.name, 
+                                  response: { 
+                                    result: {
+                                      status: "SUCCESS",
+                                      message: "Image is now visible on the user's screen. If you are already speaking, just naturally weave this into your explanation (e.g. 'As you can see on the screen...'). Do not restart your explanation."
+                                    }
+                                  } 
+                                }]
+                              }
+                            });
+                          } catch (e) {}
+                        } else {
+                          // Search failed
+                          try {
+                            sessionRef.current?.send({
+                              toolResponse: {
+                                functionResponses: [{ 
+                                  id: call.id, 
+                                  name: call.name, 
+                                  response: { 
+                                    result: {
+                                      status: "FAILED",
+                                      message: "No image could be found. SYSTEM DIRECTIVE: Do not mention an image. Briefly apologize that you couldn't find a picture, and then verbally explain the topic anyway."
+                                    }
+                                  } 
+                                }]
+                              }
+                            });
+                          } catch (e) {}
+                        }
+                      }).catch(console.error);
                     }
                   } else if (call.name === 'close_visual') {
                     setVisualContext(prev => prev ? { ...prev, active: false } : null);
@@ -553,41 +568,30 @@ CORE BEHAVIORS:
               if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
               setStatus('speaking');
 
-              try {
-                const ctx = outputContextRef.current!;
-                if (ctx.state === 'suspended') {
-                  ctx.resume();
-                }
-                const now = ctx.currentTime;
-                if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
+              const ctx = outputContextRef.current!;
+              const now = ctx.currentTime;
+              if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
 
-                const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
-                const source = ctx.createBufferSource();
-                source.buffer = audioBuffer;
+              const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
+              const source = ctx.createBufferSource();
+              source.buffer = audioBuffer;
 
-                const gainNode = ctx.createGain();
-                gainNode.gain.value = settingsRef.current.volume / 100;
-                source.connect(gainNode);
-                gainNode.connect(ctx.destination);
+              const gainNode = ctx.createGain();
+              gainNode.gain.value = settingsRef.current.volume / 100;
+              source.connect(gainNode);
+              gainNode.connect(ctx.destination);
 
-                activeSourcesRef.current.add(source);
+              activeSourcesRef.current.add(source);
 
-                source.onended = () => {
-                  activeSourcesRef.current.delete(source);
-                  if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
-                    transitionToListening();
-                  }
-                };
-
-                source.start(nextStartTimeRef.current);
-                nextStartTimeRef.current += audioBuffer.duration;
-              } catch (err) {
-                console.error("Audio playback error:", err);
-                isTurnCompleteRef.current = true;
-                if (activeSourcesRef.current.size === 0) {
+              source.onended = () => {
+                activeSourcesRef.current.delete(source);
+                if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
                   transitionToListening();
                 }
-              }
+              };
+
+              source.start(nextStartTimeRef.current);
+              nextStartTimeRef.current += audioBuffer.duration;
             }
 
             if (message.serverContent?.modelTurn?.parts) {
@@ -771,23 +775,6 @@ CORE BEHAVIORS:
         </div>
 
         <div className="flex items-center gap-2 pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <button
-            aria-label={isMuted ? "Resume Microphone" : "Pause Microphone"}
-            onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}
-            title={isMuted ? "Resume Microphone" : "Pause Microphone"}
-            className={clsx(
-              "w-10 h-10 flex items-center justify-center rounded-xl transition-colors border-2",
-              isMuted 
-                ? "bg-amber-600 hover:bg-amber-500 border-amber-400 text-white" 
-                : "bg-zinc-800 hover:bg-zinc-700 border-zinc-600 text-zinc-300 hover:text-white"
-            )}
-          >
-            {isMuted ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
-            )}
-          </button>
           <button
             aria-label="Open Settings"
             onClick={(e) => { e.stopPropagation(); setIsSettingsOpen(true); }}

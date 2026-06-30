@@ -69,14 +69,13 @@ export const VisualContextPanel: React.FC<VisualContextPanelProps> = ({
               key={context.imageUrl}
               src={context.imageUrl} 
               alt={context.title || 'Visual context'}
-              className={clsx(
-                "w-full h-full object-contain z-10 transition-all duration-700 group-hover:scale-100",
-                imageLoaded ? "opacity-100 scale-100" : "opacity-0 scale-95"
-              )}
+              className="w-full h-full object-contain z-10 transition-all duration-700 opacity-0 scale-95 group-hover:scale-100"
               loading="lazy"
               decoding="async"
               referrerPolicy="no-referrer"
-              onLoad={() => {
+              onLoad={(e) => {
+                const img = e.target as HTMLImageElement;
+                img.classList.remove('opacity-0', 'scale-95');
                 setImageLoaded(true);
               }}
               onError={(e) => {
