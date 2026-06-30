@@ -238,6 +238,21 @@ const App: React.FC = () => {
     }, THINKING_TIMEOUT_MS);
   }, []);
 
+  // Robust Fallback: If we are stuck in 'speaking' but no audio is playing, force back to listening.
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (status === 'speaking') {
+      interval = setInterval(() => {
+        if (activeSourcesRef.current.size === 0) {
+          console.warn("Fallback: Audio finished but stuck in speaking state. Forcing listening transition.");
+          isTurnCompleteRef.current = true;
+          transitionToListening();
+        }
+      }, 1500); // 1.5 seconds of silence while "speaking" triggers a force-reset
+    }
+    return () => { if (interval) clearInterval(interval); };
+  }, [status, transitionToListening]);
+
   // ─── Visual Context Logic ────────────────────────────────────────────────
 
   const triggerImageSearch = async (text: string): Promise<Partial<VisualContext> | null> => {
