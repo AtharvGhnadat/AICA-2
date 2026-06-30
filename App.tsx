@@ -446,7 +446,11 @@ CORE BEHAVIORS:
                 if (!isConnectedRef.current) return;
 
                 if (ev.data.event === 'speech_start') {
-                  // User started speaking. Stay in 'listening' mode to show we are hearing them.
+                  // User started speaking. If we were thinking, go back to listening.
+                  if (statusRef.current === 'thinking' || statusRef.current === 'idle') {
+                    setStatus('listening');
+                    statusRef.current = 'listening';
+                  }
                   return;
                 } else if (ev.data.event === 'speech_end') {
                   // User finished speaking. Transition to 'thinking' (processing) while waiting for AI.
@@ -455,9 +459,8 @@ CORE BEHAVIORS:
                     statusRef.current = 'thinking';
                     startThinkingTimeout();
                   }
-                  try {
-                    sessionRef.current?.send({ clientContent: { turns: [], turnComplete: true } });
-                  } catch (e) {}
+                  // We removed the manual turnComplete payload because Gemini's internal VAD handles responses automatically
+                  // and manually sending empty turns can corrupt the server session!
                   return;
                 }
 
