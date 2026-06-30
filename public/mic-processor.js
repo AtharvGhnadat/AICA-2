@@ -32,17 +32,23 @@ class MicProcessor extends AudioWorkletProcessor {
         const rms = Math.sqrt(sumSquare / channelData.length);
         
         if (rms > this.threshold) {
+          if (this.framesSinceLastLoud > this.holdFrames) {
+            this.port.postMessage({ event: 'speech_start' });
+          }
           this.framesSinceLastLoud = 0;
         } else {
           this.framesSinceLastLoud++;
         }
 
-        // If it's been quiet for longer than the hold time, send absolute silence
+        if (this.framesSinceLastLoud === this.holdFrames + 1) {
+          this.port.postMessage({ event: 'speech_end' });
+        }
+
+        // Always send audio data, either real or zeros
         if (this.framesSinceLastLoud > this.holdFrames) {
-          this.port.postMessage(new Float32Array(channelData.length));
+          this.port.postMessage({ type: 'audio', data: new Float32Array(channelData.length) });
         } else {
-          // Copy the data since the buffer will be reused
-          this.port.postMessage(new Float32Array(channelData));
+          this.port.postMessage({ type: 'audio', data: new Float32Array(channelData) });
         }
       }
     }
