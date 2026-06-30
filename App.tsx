@@ -25,12 +25,11 @@ function base64Decode(base64: string): Uint8Array {
 }
 
 function base64Encode(bytes: Uint8Array): string {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const chars = new Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    chars[i] = String.fromCharCode(bytes[i]);
   }
-  return btoa(binary);
+  return btoa(chars.join(''));
 }
 
 function decodeAudioBuffer(

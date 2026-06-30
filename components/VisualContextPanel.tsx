@@ -59,9 +59,9 @@ export const VisualContextPanel: React.FC<VisualContextPanelProps> = ({
         {context?.imageUrl && (
           <div className="w-full max-w-6xl relative flex items-center justify-center rounded-[2rem] overflow-hidden bg-slate-950 shadow-[0_20px_60px_rgba(0,0,0,0.8)] shrink-0 h-[60vh] md:h-[75vh] transition-all duration-700 group border border-white/10">
             
-            {/* Blurred background image effect */}
+            {/* Static tinted background instead of heavy blur for 1GB RAM tablets */}
             <div 
-              className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-50 blur-2xl scale-110 -z-20 transition-opacity duration-1000"
+              className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-20 scale-110 -z-20 transition-opacity duration-1000"
               style={{ backgroundImage: `url(${context.imageUrl})` }}
             />
 
