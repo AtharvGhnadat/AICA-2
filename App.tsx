@@ -462,10 +462,13 @@ CORE BEHAVIORS:
 
                 if (ev.data.type === 'audio') {
                   let dataToPush = ev.data.data as Float32Array;
-                  // If muted or AI is speaking, send absolute silence (zeros) instead of dropping the packet.
-                  // DO NOT zero out if 'thinking', because 'thinking' means the user is speaking or AI is processing!
                   if (isMutedRef.current || statusRef.current === 'speaking') {
-                    dataToPush = new Float32Array(dataToPush.length); // Zeros out the audio
+                    // Inject microscopic white noise instead of absolute zeros. 
+                    // Absolute zeros trigger Google's "dead microphone" disconnect timeout after ~10 seconds!
+                    dataToPush = new Float32Array(dataToPush.length);
+                    for (let i = 0; i < dataToPush.length; i++) {
+                      dataToPush[i] = (Math.random() - 0.5) * 0.0001; 
+                    }
                   }
 
                   micBuffer.push(dataToPush);

@@ -46,10 +46,10 @@ class MicProcessor extends AudioWorkletProcessor {
           this.port.postMessage({ event: 'speech_end' });
         }
 
-        // Fill the internal buffer (using zeros if muted/silent)
+        // Fill the internal buffer (using microscopic noise if muted/silent to prevent WebSocket drop)
         const isSilent = this.framesSinceLastLoud > this.holdFrames;
         for (let i = 0; i < channelData.length; i++) {
-          this.audioBuffer[this.bufferIndex++] = isSilent ? 0 : channelData[i];
+          this.audioBuffer[this.bufferIndex++] = isSilent ? (Math.random() - 0.5) * 0.0001 : channelData[i];
           
           if (this.bufferIndex >= this.bufferSize) {
             // Send chunk to main thread (huge CPU optimization)
