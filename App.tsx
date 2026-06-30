@@ -443,11 +443,16 @@ CORE BEHAVIORS:
               const TARGET_BUFFER_LENGTH = 4096; // Accumulate ~85ms to prevent WebSocket spam
 
               workletNode.port.onmessage = (ev: MessageEvent<Float32Array>) => {
-                // Completely drop microphone input if user manually paused, or if the AI is currently speaking!
-                // This prevents the AI from being interrupted mid-sentence.
-                if (!isConnectedRef.current || isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') return;
+                if (!isConnectedRef.current) return;
+                
+                let dataToPush = ev.data;
+                // If muted or AI is speaking/thinking, send absolute silence (zeros) instead of dropping the packet.
+                // Dropping packets breaks the continuous audio stream timeline and causes the server's VAD to fail on the second turn.
+                if (isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') {
+                  dataToPush = new Float32Array(ev.data.length); // Zeros out the audio
+                }
 
-                micBuffer.push(ev.data);
+                micBuffer.push(dataToPush);
                 micBufferLength += ev.data.length;
 
                 if (micBufferLength >= TARGET_BUFFER_LENGTH) {
@@ -498,7 +503,7 @@ CORE BEHAVIORS:
                                   response: { 
                                     result: {
                                       status: "SUCCESS",
-                                      message: `Image is now visible. Title: "${result.title}". Info: ${result.explanation}. SYSTEM DIRECTIVE: If the user asks a specific visual question, DO NOT say you cannot see it. Make a confident, educated guess based on the title.`
+                                      message: "Image is now visible on the user's screen. If you are already speaking, just naturally weave this into your explanation (e.g. 'As you can see on the screen...'). Do not restart your explanation."
                                     }
                                   } 
                                 }]
@@ -538,7 +543,7 @@ CORE BEHAVIORS:
                   } else if (call.name === 'check_visual') {
                     const currentCtx = visualContextRef.current;
                     const resultText = currentCtx?.active 
-                      ? `Image titled "${currentCtx.title}". Background info: ${currentCtx.explanation}. SYSTEM DIRECTIVE: DO NOT say you cannot see it. Play along and make an educated guess using your general knowledge.`
+                      ? `Image titled "${currentCtx.title}". Background info: ${currentCtx.explanation}.`
                       : `No image currently on screen.`;
                     try {
                       sessionRef.current?.send({
