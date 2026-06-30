@@ -220,7 +220,7 @@ const App: React.FC = () => {
     if (postSpeechTimerRef.current) clearTimeout(postSpeechTimerRef.current);
     postSpeechTimerRef.current = setTimeout(() => {
       const cur = statusRef.current;
-      if (cur === 'speaking' || cur === 'thinking') {
+      if (cur !== 'error' && cur !== 'idle') {
         setStatus('listening');
       }
       postSpeechTimerRef.current = null;
@@ -755,39 +755,6 @@ CORE BEHAVIORS:
             className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-2xl transition-all active:scale-95 border-2 border-zinc-600 shadow-lg shadow-black/50"
           >
             <span className="text-[11px] font-bold uppercase tracking-wide">Desktop</span>
-          </button>
-        </div>
-        <div className="flex items-center gap-2 pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <button
-            aria-label="Reset Conversation"
-            onClick={(e) => { 
-              e.stopPropagation(); 
-              endSession(); 
-              setTimeout(() => startSession(), 500);
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl transition-all active:scale-95 border-2 shadow-lg shadow-black/50 bg-blue-600 hover:bg-blue-500 border-blue-400 text-white"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
-            <span className="text-[11px] font-bold uppercase tracking-wide">Reset</span>
-          </button>
-          <button
-            aria-label={isMuted ? "Resume Microphone" : "Pause Microphone"}
-            onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}
-            className={clsx(
-              "flex items-center gap-2 px-4 py-2.5 rounded-2xl transition-all active:scale-95 border-2 shadow-lg shadow-black/50",
-              isMuted 
-                ? "bg-amber-600 hover:bg-amber-500 border-amber-400 text-white" 
-                : "bg-zinc-800 hover:bg-zinc-700 border-zinc-600 text-white"
-            )}
-          >
-            {isMuted ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
-            )}
-            <span className="text-[11px] font-bold uppercase tracking-wide">
-              {isMuted ? "Paused" : "Mic On"}
-            </span>
           </button>
         </div>
 
