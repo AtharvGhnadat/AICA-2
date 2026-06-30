@@ -443,11 +443,16 @@ CORE BEHAVIORS:
               const TARGET_BUFFER_LENGTH = 4096; // Accumulate ~85ms to prevent WebSocket spam
 
               workletNode.port.onmessage = (ev: MessageEvent<Float32Array>) => {
-                // Completely drop microphone input if user manually paused, or if the AI is currently speaking!
-                // This prevents the AI from being interrupted mid-sentence.
-                if (!isConnectedRef.current || isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') return;
+                if (!isConnectedRef.current || isMutedRef.current) return;
 
-                micBuffer.push(ev.data);
+                // To prevent the WebSocket from timing out during long AI speeches, we MUST keep sending data.
+                // However, to prevent background noise from interrupting the AI, we send pure silence!
+                let dataToPush = ev.data;
+                if (statusRef.current === 'speaking' || statusRef.current === 'thinking') {
+                  dataToPush = new Float32Array(ev.data.length); // Array of zeroes (pure silence)
+                }
+
+                micBuffer.push(dataToPush);
                 micBufferLength += ev.data.length;
 
                 if (micBufferLength >= TARGET_BUFFER_LENGTH) {
