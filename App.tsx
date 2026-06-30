@@ -168,6 +168,7 @@ const App: React.FC = () => {
   const isConnectedRef = useRef(false);
   const isMutedRef = useRef(false);
   const isTurnCompleteRef = useRef(true);
+  const toolCallInProgressRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   const textBufferRef = useRef<string>("");
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -243,7 +244,7 @@ const App: React.FC = () => {
     let interval: ReturnType<typeof setInterval>;
     if (status === 'speaking') {
       interval = setInterval(() => {
-        if (activeSourcesRef.current.size === 0) {
+        if (activeSourcesRef.current.size === 0 && !toolCallInProgressRef.current) {
           console.warn("Fallback: Audio finished but stuck in speaking state. Forcing listening transition.");
           isTurnCompleteRef.current = true;
           transitionToListening();
@@ -504,6 +505,7 @@ CORE BEHAVIORS:
               const calls = message.toolCall.functionCalls;
               if (calls) {
                 for (const call of calls) {
+                  toolCallInProgressRef.current = true;
                   if (call.name === 'show_visual') {
                     const args = call.args as { topic: string };
                     if (args.topic) {
@@ -545,7 +547,11 @@ CORE BEHAVIORS:
                             });
                           } catch (e) {}
                         }
-                      }).catch(console.error);
+                      }).catch(console.error).finally(() => {
+                        toolCallInProgressRef.current = false;
+                      });
+                    } else {
+                      toolCallInProgressRef.current = false;
                     }
                   } else if (call.name === 'close_visual') {
                     setVisualContext(prev => prev ? { ...prev, active: false } : null);
@@ -556,6 +562,7 @@ CORE BEHAVIORS:
                         }
                       });
                     } catch (e) {}
+                    toolCallInProgressRef.current = false;
                   } else if (call.name === 'check_visual') {
                     const currentCtx = visualContextRef.current;
                     const resultText = currentCtx?.active 
@@ -568,6 +575,7 @@ CORE BEHAVIORS:
                         }
                       });
                     } catch (e) {}
+                    toolCallInProgressRef.current = false;
                   } else {
                     // Fallback
                     try {
@@ -577,6 +585,7 @@ CORE BEHAVIORS:
                         }
                       });
                     } catch (e) {}
+                    toolCallInProgressRef.current = false;
                   }
                 }
               }
