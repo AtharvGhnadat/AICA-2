@@ -545,15 +545,6 @@ CORE BEHAVIORS:
               }
             }
 
-            if (message.serverContent?.turnComplete) {
-              isTurnCompleteRef.current = true;
-              if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-              if (activeSourcesRef.current.size === 0) {
-                transitionToListening();
-              }
-              // Reset text buffer at the end of the turn
-              textBufferRef.current = "";
-            }
 
             const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (audioData) {
@@ -595,6 +586,16 @@ CORE BEHAVIORS:
                   console.log("AI Text Output:", part.text);
                 }
               }
+            }
+
+            if (message.serverContent?.turnComplete) {
+              isTurnCompleteRef.current = true;
+              if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
+              if (activeSourcesRef.current.size === 0) {
+                transitionToListening();
+              }
+              // Reset text buffer at the end of the turn
+              textBufferRef.current = "";
             }
 
             if (message.serverContent?.interrupted) {
