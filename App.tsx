@@ -223,6 +223,8 @@ const App: React.FC = () => {
       const cur = statusRef.current;
       if (cur !== 'error' && cur !== 'idle') {
         setStatus('listening');
+        // Auto-close visual context when AI finishes speaking to free up massive RAM on potato tablets
+        setVisualContext(prev => prev ? { ...prev, active: false } : null);
       }
       postSpeechTimerRef.current = null;
     }, POST_SPEECH_DELAY_MS);
