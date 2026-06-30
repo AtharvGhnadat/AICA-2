@@ -509,47 +509,28 @@ CORE BEHAVIORS:
                   if (call.name === 'show_visual') {
                     const args = call.args as { topic: string };
                     if (args.topic) {
-                      // Await the search so the AI knows if it succeeded or failed!
-                      triggerImageSearch(args.topic).then((result) => {
-                        if (result) {
-                          try {
-                            sessionRef.current?.send({
-                              toolResponse: {
-                                functionResponses: [{ 
-                                  id: call.id, 
-                                  name: call.name, 
-                                  response: { 
-                                    result: {
-                                      status: "SUCCESS",
-                                      message: "Image is now visible on the user's screen. If you are already speaking, just naturally weave this into your explanation (e.g. 'As you can see on the screen...'). Do not restart your explanation."
-                                    }
-                                  } 
-                                }]
-                              }
-                            });
-                          } catch (e) {}
-                        } else {
-                          // Search failed
-                          try {
-                            sessionRef.current?.send({
-                              toolResponse: {
-                                functionResponses: [{ 
-                                  id: call.id, 
-                                  name: call.name, 
-                                  response: { 
-                                    result: {
-                                      status: "FAILED",
-                                      message: "No image could be found. SYSTEM DIRECTIVE: Do not mention an image. Briefly apologize that you couldn't find a picture, and then verbally explain the topic anyway."
-                                    }
-                                  } 
-                                }]
-                              }
-                            });
-                          } catch (e) {}
-                        }
-                      }).catch(console.error).finally(() => {
+                      // Fire the search in the background immediately
+                      triggerImageSearch(args.topic).catch(console.error).finally(() => {
                         toolCallInProgressRef.current = false;
                       });
+                      
+                      // instantly tell the AI it was successful so it starts speaking IMMEDIATELY with zero latency
+                      try {
+                        sessionRef.current?.send({
+                          toolResponse: {
+                            functionResponses: [{ 
+                              id: call.id, 
+                              name: call.name, 
+                              response: { 
+                                result: {
+                                  status: "SUCCESS",
+                                  message: "Image search initiated. It will appear on screen in a moment. IMMEDIATELY continue your verbal explanation."
+                                }
+                              } 
+                            }]
+                          }
+                        });
+                      } catch (e) {}
                     } else {
                       toolCallInProgressRef.current = false;
                     }
