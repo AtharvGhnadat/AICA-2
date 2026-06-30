@@ -568,30 +568,41 @@ CORE BEHAVIORS:
               if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
               setStatus('speaking');
 
-              const ctx = outputContextRef.current!;
-              const now = ctx.currentTime;
-              if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
+              try {
+                const ctx = outputContextRef.current!;
+                if (ctx.state === 'suspended') {
+                  ctx.resume();
+                }
+                const now = ctx.currentTime;
+                if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
 
-              const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
-              const source = ctx.createBufferSource();
-              source.buffer = audioBuffer;
+                const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
+                const source = ctx.createBufferSource();
+                source.buffer = audioBuffer;
 
-              const gainNode = ctx.createGain();
-              gainNode.gain.value = settingsRef.current.volume / 100;
-              source.connect(gainNode);
-              gainNode.connect(ctx.destination);
+                const gainNode = ctx.createGain();
+                gainNode.gain.value = settingsRef.current.volume / 100;
+                source.connect(gainNode);
+                gainNode.connect(ctx.destination);
 
-              activeSourcesRef.current.add(source);
+                activeSourcesRef.current.add(source);
 
-              source.onended = () => {
-                activeSourcesRef.current.delete(source);
-                if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
+                source.onended = () => {
+                  activeSourcesRef.current.delete(source);
+                  if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
+                    transitionToListening();
+                  }
+                };
+
+                source.start(nextStartTimeRef.current);
+                nextStartTimeRef.current += audioBuffer.duration;
+              } catch (err) {
+                console.error("Audio playback error:", err);
+                isTurnCompleteRef.current = true;
+                if (activeSourcesRef.current.size === 0) {
                   transitionToListening();
                 }
-              };
-
-              source.start(nextStartTimeRef.current);
-              nextStartTimeRef.current += audioBuffer.duration;
+              }
             }
 
             if (message.serverContent?.modelTurn?.parts) {
