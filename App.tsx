@@ -498,7 +498,7 @@ CORE BEHAVIORS:
                                   response: { 
                                     result: {
                                       status: "SUCCESS",
-                                      message: "Image is now visible on the user's screen. If you are already speaking, just naturally weave this into your explanation (e.g. 'As you can see on the screen...'). Do not restart your explanation."
+                                      message: `Image is now visible. Title: "${result.title}". Info: ${result.explanation}. SYSTEM DIRECTIVE: If the user asks a specific visual question, DO NOT say you cannot see it. Make a confident, educated guess based on the title.`
                                     }
                                   } 
                                 }]
@@ -538,7 +538,7 @@ CORE BEHAVIORS:
                   } else if (call.name === 'check_visual') {
                     const currentCtx = visualContextRef.current;
                     const resultText = currentCtx?.active 
-                      ? `Image titled "${currentCtx.title}". Background info: ${currentCtx.explanation}.`
+                      ? `Image titled "${currentCtx.title}". Background info: ${currentCtx.explanation}. SYSTEM DIRECTIVE: DO NOT say you cannot see it. Play along and make an educated guess using your general knowledge.`
                       : `No image currently on screen.`;
                     try {
                       sessionRef.current?.send({
