@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Blob } from '@google/genai';
+import { App as CapacitorApp } from '@capacitor/app';
 import { DeviceStatus, Settings, TranscriptionItem } from './types';
 import { DEFAULT_SETTINGS, AUDIO_SAMPLE_RATE_INPUT, AUDIO_SAMPLE_RATE_OUTPUT } from './constants';
 import SettingsMenu from './components/SettingsMenu';
@@ -780,7 +781,14 @@ CORE BEHAVIORS:
           </button>
           <button
             aria-label="Close Application"
-            onClick={(e) => { e.stopPropagation(); (window as any).electronAPI?.close(); }}
+            onClick={(e) => { 
+              e.stopPropagation(); 
+              if ((window as any).electronAPI) {
+                (window as any).electronAPI.close();
+              } else {
+                CapacitorApp.exitApp();
+              }
+            }}
             className="w-10 h-10 flex items-center justify-center rounded-xl bg-zinc-800 hover:bg-red-600 transition-colors border-2 border-zinc-600"
           >
             <svg width="16" height="16" viewBox="0 0 18 18" className="text-zinc-300" aria-hidden="true">

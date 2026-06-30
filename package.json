@@ -15,6 +15,7 @@
     "electron:start": "electron ."
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.0",
     "@capacitor/core": "^8.4.1",
     "@google/genai": "^1.41.0",
     "axios": "^1.18.1",
