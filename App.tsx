@@ -363,8 +363,9 @@ const App: React.FC = () => {
         throw new Error("Cannot access microphone.");
       }
 
+      // Disable echoCancellation to force Android to use the loud 'Media' volume stream instead of the quiet 'Voice Call' stream
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
       });
       streamRef.current = stream;
 
@@ -590,8 +591,8 @@ CORE BEHAVIORS:
               source.buffer = audioBuffer;
 
               const gainNode = ctx.createGain();
-              // Boost output volume by 350% because mobile speakers are naturally quiet
-              gainNode.gain.value = (settingsRef.current.volume / 100) * 3.5;
+              // Boost output volume by 400% because mobile speakers are naturally quiet
+              gainNode.gain.value = (settingsRef.current.volume / 100) * 4.0;
               source.connect(gainNode);
               gainNode.connect(ctx.destination);
 
