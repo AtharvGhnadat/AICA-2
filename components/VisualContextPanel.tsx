@@ -55,15 +55,21 @@ export const VisualContextPanel: React.FC<VisualContextPanelProps> = ({
       </div>
 
       {/* Scrollable Content */}
-      <TouchScrollArea className="flex-1 p-6 md:p-8 flex flex-col gap-6">
+      <TouchScrollArea className="flex-1 p-6 md:p-12 flex flex-col items-center justify-center gap-8">
         {context?.imageUrl && (
-          <div className="w-full relative flex items-center justify-center rounded-3xl overflow-hidden bg-slate-900/40 backdrop-blur-xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] shrink-0 p-4 min-h-[30vh] max-h-[45vh] md:min-h-[40vh] md:max-h-[50vh] transition-all duration-500 group">
+          <div className="w-full max-w-5xl relative flex items-center justify-center rounded-[2rem] overflow-hidden bg-slate-950 shadow-[0_20px_60px_rgba(0,0,0,0.8)] shrink-0 min-h-[50vh] md:min-h-[60vh] transition-all duration-700 group border border-white/10">
             
-            {/* Elegant Loading skeleton placeholder */}
-            <div className="absolute inset-0 bg-slate-800/30 animate-pulse -z-10" />
+            {/* Blurred background image effect */}
+            <div 
+              className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-50 blur-2xl scale-110 -z-20 transition-opacity duration-1000"
+              style={{ backgroundImage: `url(${context.imageUrl})` }}
+            />
 
-            {/* Subtle Gradient Glow Behind Image */}
-            <div className="absolute inset-0 bg-gradient-to-tr from-cyan-500/5 to-purple-500/5 -z-10" />
+            {/* Dark overlay for contrast */}
+            <div className="absolute inset-0 bg-black/40 -z-10" />
+
+            {/* Elegant Loading skeleton placeholder */}
+            <div className="absolute inset-0 bg-slate-800/20 animate-pulse -z-10" />
 
             <img 
               key={context.imageUrl}

@@ -14,15 +14,15 @@ export const SplitRobotLayout: React.FC<SplitRobotLayoutProps> = ({
   isSplitView 
 }) => {
   return (
-    <div className="relative w-full h-full flex flex-col md:flex-row overflow-hidden bg-slate-950">
-      {/* Left/Top Panel (Robot Face) */}
+    <div className="relative w-full h-full overflow-hidden bg-slate-950">
+      {/* Robot Face Panel - Hidden in background when image is active */}
       <div 
         className={twMerge(
           clsx(
-            "transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] flex-shrink-0 h-full w-full",
+            "transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)] absolute inset-0 w-full h-full z-0",
             {
-              "md:w-1/2 h-[40vh] md:h-full": isSplitView,
-              "md:w-full h-full": !isSplitView
+              "opacity-0 scale-95 pointer-events-none": isSplitView,
+              "opacity-100 scale-100 pointer-events-auto": !isSplitView
             }
           )
         )}
@@ -30,14 +30,14 @@ export const SplitRobotLayout: React.FC<SplitRobotLayoutProps> = ({
         {leftPanel}
       </div>
 
-      {/* Right/Bottom Panel (Visual Context) */}
+      {/* Visual Context Panel - Fullscreen Overlay */}
       <div 
         className={twMerge(
           clsx(
-            "transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] flex-shrink-0 h-full w-full bg-slate-900 border-t md:border-t-0 md:border-l border-white/5 shadow-[-20px_0_50px_rgba(0,0,0,0.5)]",
+            "transition-all duration-700 ease-[cubic-bezier(0.23,1,0.32,1)] absolute inset-0 w-full h-full z-10 bg-slate-950/90 backdrop-blur-3xl",
             {
-              "md:w-1/2 h-[60vh] md:h-full translate-x-0 translate-y-0 opacity-100": isSplitView,
-              "md:w-0 h-0 md:h-full translate-x-full md:translate-x-full md:translate-y-0 translate-y-full opacity-0": !isSplitView
+              "opacity-100 translate-y-0 pointer-events-auto": isSplitView,
+              "opacity-0 translate-y-12 pointer-events-none": !isSplitView
             }
           )
         )}
