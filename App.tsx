@@ -590,7 +590,8 @@ CORE BEHAVIORS:
               source.buffer = audioBuffer;
 
               const gainNode = ctx.createGain();
-              gainNode.gain.value = settingsRef.current.volume / 100;
+              // Boost output volume by 350% because mobile speakers are naturally quiet
+              gainNode.gain.value = (settingsRef.current.volume / 100) * 3.5;
               source.connect(gainNode);
               gainNode.connect(ctx.destination);
 
