@@ -454,10 +454,8 @@ CORE BEHAVIORS:
                   return;
                 } else if (ev.data.event === 'speech_end') {
                   // User finished speaking. Stay in 'listening' mode to remove the "processing" visual bug.
-                  // Force the Gemini API to respond IMMEDIATELY by sending turnComplete without an empty turns array.
-                  try {
-                    sessionRef.current?.send({ clientContent: { turnComplete: true } });
-                  } catch (e) {}
+                  // We MUST NOT send turnComplete because it crashes the Gemini Live session when using realtimeInput!
+                  // We rely entirely on the server's VAD, which has a small natural delay.
                   return;
                 }
 
