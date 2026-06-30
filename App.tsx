@@ -453,14 +453,11 @@ CORE BEHAVIORS:
                   }
                   return;
                 } else if (ev.data.event === 'speech_end') {
-                  // User finished speaking. Transition to 'thinking' (processing) while waiting for AI.
-                  if (statusRef.current === 'listening') {
-                    setStatus('thinking');
-                    statusRef.current = 'thinking';
-                    startThinkingTimeout();
-                  }
-                  // We removed the manual turnComplete payload because Gemini's internal VAD handles responses automatically
-                  // and manually sending empty turns can corrupt the server session!
+                  // User finished speaking. Stay in 'listening' mode to remove the "processing" visual bug.
+                  // Force the Gemini API to respond IMMEDIATELY by sending turnComplete without an empty turns array.
+                  try {
+                    sessionRef.current?.send({ clientContent: { turnComplete: true } });
+                  } catch (e) {}
                   return;
                 }
 
