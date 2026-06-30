@@ -57,7 +57,7 @@ export const VisualContextPanel: React.FC<VisualContextPanelProps> = ({
       {/* Scrollable Content */}
       <TouchScrollArea className="flex-1 p-6 md:p-12 flex flex-col items-center justify-center gap-8">
         {context?.imageUrl && (
-          <div className="w-full max-w-5xl relative flex items-center justify-center rounded-[2rem] overflow-hidden bg-slate-950 shadow-[0_20px_60px_rgba(0,0,0,0.8)] shrink-0 min-h-[50vh] md:min-h-[60vh] transition-all duration-700 group border border-white/10">
+          <div className="w-full max-w-6xl relative flex items-center justify-center rounded-[2rem] overflow-hidden bg-slate-950 shadow-[0_20px_60px_rgba(0,0,0,0.8)] shrink-0 h-[60vh] md:h-[75vh] transition-all duration-700 group border border-white/10">
             
             {/* Blurred background image effect */}
             <div 
