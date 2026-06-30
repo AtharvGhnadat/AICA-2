@@ -565,8 +565,10 @@ CORE BEHAVIORS:
                     toolCallInProgressRef.current = false;
                   } else if (call.name === 'check_visual') {
                     const currentCtx = visualContextRef.current;
+                    // Provide the title, explanation, AND the raw image URL. 
+                    // Gemini Multimodal can automatically fetch and "see" image URLs provided in context!
                     const resultText = currentCtx?.active 
-                      ? `Image titled "${currentCtx.title}". Background info: ${currentCtx.explanation}.`
+                      ? `Image titled "${currentCtx.title}". URL: ${currentCtx.imageUrl}. Background info: ${currentCtx.explanation}. You can now 'see' the image using this URL.`
                       : `No image currently on screen.`;
                     try {
                       sessionRef.current?.send({
