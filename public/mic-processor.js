@@ -7,7 +7,7 @@ class MicProcessor extends AudioWorkletProcessor {
     super();
     this.threshold = 0.01; // Default threshold
     this.framesSinceLastLoud = 1000;
-    this.holdFrames = 150; // ~400ms hold time to prevent clipping during speech
+    this.holdFrames = 50; // ~130ms hold time to drastically speed up silence detection
     
     this.port.onmessage = (event) => {
       if (event.data && event.data.type === 'SET_SENSITIVITY') {

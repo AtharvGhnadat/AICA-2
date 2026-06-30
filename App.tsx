@@ -442,7 +442,7 @@ CORE BEHAVIORS:
 
               let micBuffer: Float32Array[] = [];
               let micBufferLength = 0;
-              const TARGET_BUFFER_LENGTH = 4096; // Accumulate ~85ms to prevent WebSocket spam
+              const TARGET_BUFFER_LENGTH = 2048; // Accumulate ~42ms to reduce transmission latency
 
               workletNode.port.onmessage = (ev: MessageEvent<any>) => {
                 if (!isConnectedRef.current) return;
