@@ -446,13 +446,15 @@ CORE BEHAVIORS:
                 if (!isConnectedRef.current) return;
 
                 if (ev.data.event === 'speech_start') {
+                  // User started speaking. Stay in 'listening' mode to show we are hearing them.
+                  return;
+                } else if (ev.data.event === 'speech_end') {
+                  // User finished speaking. Transition to 'thinking' (processing) while waiting for AI.
                   if (statusRef.current === 'listening') {
                     setStatus('thinking');
                     statusRef.current = 'thinking';
                     startThinkingTimeout();
                   }
-                  return;
-                } else if (ev.data.event === 'speech_end') {
                   try {
                     sessionRef.current?.send({ clientContent: { turns: [], turnComplete: true } });
                   } catch (e) {}
