@@ -15,3 +15,13 @@ export interface TranscriptionItem {
   text: string;
   sender: 'user' | 'bot';
 }
+
+export interface VisualContext {
+  title: string;
+  explanation: string;
+  imageUrl: string;
+  thumbnailUrl?: string;
+  searchQuery: string;
+  imageSource: "serpapi" | "fallback" | "none";
+  active: boolean;
+}

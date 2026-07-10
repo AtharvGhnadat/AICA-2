@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality, Blob } from '@google/genai';
+import { GoogleGenAI, LiveServerMessage, Modality, Blob, Type } from '@google/genai';
 import { App as CapacitorApp } from '@capacitor/app';
 import { DeviceStatus, Settings, TranscriptionItem } from './types';
 import { DEFAULT_SETTINGS, AUDIO_SAMPLE_RATE_INPUT, AUDIO_SAMPLE_RATE_OUTPUT } from './constants';
@@ -8,8 +8,8 @@ import { SplitRobotLayout } from './components/SplitRobotLayout';
 import { RobotFacePanel } from './components/RobotFacePanel';
 import { VisualContextPanel } from './components/VisualContextPanel';
 import { visualContextService } from './services/visualContextService';
-import { topicRelevanceService } from './services/topicRelevanceService';
-import { VisualContext } from './types/visualContext';
+
+import { VisualContext } from './types';
 import { clsx } from 'clsx';
 
 // ─── Audio Utils ──────────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ function downsampleBuffer(buffer: Float32Array, fromRate: number, toRate: number
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const POST_SPEECH_DELAY_MS = 30;
+const POST_SPEECH_DELAY_MS = 20;
 const THINKING_TIMEOUT_MS = 8000;
 const RECONNECT_DELAY_MS = 3000;
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -256,6 +256,8 @@ const App: React.FC = () => {
   }, [status, transitionToListening]);
 
   // ─── Visual Context Logic ────────────────────────────────────────────────
+  // Topic relevance is handled entirely by Gemini's tool calls (show_visual/close_visual/check_visual).
+  // No client-side intent detection needed — eliminates latency from regex matching + relevance checks.
 
   const triggerImageSearch = async (text: string): Promise<Partial<VisualContext> | null> => {
     setVisualStatus('loading');
@@ -264,10 +266,7 @@ const App: React.FC = () => {
     if (result) {
       setVisualContext({ ...result, active: true });
       setVisualStatus('success');
-
-      // No need to inject clientContent anymore, we return the context directly in the tool response because it's so fast now!
       return result;
-
     } else {
       setVisualStatus('error');
       setTimeout(() => {
@@ -275,28 +274,6 @@ const App: React.FC = () => {
         setVisualStatus('idle');
       }, 3000);
       return null;
-    }
-  };
-
-  const handleUserTurn = async (text: string) => {
-    const currentCtx = visualContextRef.current;
-    
-    // Check if the user is asking a question that should trigger a visual search
-    // We allow more flexible patterns like "can you explain", "what's", "show me", etc.
-    const isVisualQuestion = /(what is|what's|who is|who's|explain|tell me about|show me|how does|what does|diagram of|picture of|image of|can you show)/i.test(text);
-
-    if (currentCtx?.active) {
-      const relevance = await topicRelevanceService.checkRelevance(currentCtx.title || currentCtx.searchQuery || '', text);
-      if (relevance.action === 'close_visual_panel') {
-        setVisualContext(prev => prev ? { ...prev, active: false } : null);
-        if (isVisualQuestion) {
-          await triggerImageSearch(text);
-        }
-      }
-    } else {
-      if (isVisualQuestion) {
-        await triggerImageSearch(text);
-      }
     }
   };
 
@@ -381,7 +358,7 @@ const App: React.FC = () => {
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } } },
-          systemInstruction: `You are ${currentSettings.deviceName}, a world-class, friendly AI teacher assistant built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice.
+          systemInstruction: { parts: [{ text: `You are ${currentSettings.deviceName}, a world-class, friendly AI teacher assistant built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice.
 
 CRITICAL IDENTITY & LANGUAGE:
 - Your primary languages are Marathi and English. You must effortlessly understand both. Explain complex topics using a natural mix of simple Marathi and English (Hinglish/Maringlish style) to make it feel like a real Indian teacher.
@@ -394,7 +371,7 @@ CORE BEHAVIORS:
 3. IMAGE EXPLANATION: When "show_visual" is called and an image appears, explain it in a student-friendly way. If you forget what's currently on screen, call "check_visual".
 4. BLINDNESS WORKAROUND: If the user asks about specific colors or parts of an image on screen (e.g., "what is the green part?"), NEVER say "I cannot see the image", "I am guessing", or "I am using a tool to check". You MUST silently call "check_visual" to get the image context, and then verbally respond with absolute certainty as if you are staring directly at the screen. Give a direct answer immediately without narrating your process.
 5. CLOSING: To close the screen, call the "close_visual" tool if the user changes to an unrelated topic.
-6. SINGLE QUESTION FOCUS: If you hear a "stack of questions" or a long rambling conversation (like the user talking to friends), DO NOT try to answer everything! ONLY respond to the final, most direct question addressed to you. Ignore all background chatter.`,
+6. SINGLE QUESTION FOCUS: If you hear a "stack of questions" or a long rambling conversation (like the user talking to friends), DO NOT try to answer everything! ONLY respond to the final, most direct question addressed to you. Ignore all background chatter.` }] },
           tools: [
             { googleSearch: {} },
             {
@@ -403,20 +380,20 @@ CORE BEHAVIORS:
                   name: "show_visual",
                   description: "Displays a relevant image on the user's screen. Call this when explaining educational concepts.",
                   parameters: {
-                    type: "OBJECT",
-                    properties: { topic: { type: "STRING", description: "The exact Google Images search query to find the best image (e.g., 'Photosynthesis simple diagram', 'Human heart anatomy'). Be specific to get a good educational image." } },
+                    type: Type.OBJECT,
+                    properties: { topic: { type: Type.STRING, description: "The exact Google Images search query to find the best image (e.g., 'Photosynthesis simple diagram', 'Human heart anatomy'). Be specific to get a good educational image." } },
                     required: ["topic"]
                   }
                 },
                 {
                   name: "close_visual",
                   description: "Closes the image panel on the screen.",
-                  parameters: { type: "OBJECT", properties: {} }
+                  parameters: { type: Type.OBJECT, properties: {} }
                 },
                 {
                   name: "check_visual",
                   description: "Checks what image is currently displayed on the screen.",
-                  parameters: { type: "OBJECT", properties: {} }
+                  parameters: { type: Type.OBJECT, properties: {} }
                 }
               ]
             }
@@ -434,7 +411,7 @@ CORE BEHAVIORS:
 
             const setupWorklet = async () => {
               try {
-                await inputCtx.audioWorklet.addModule('./mic-processor.js');
+                await inputCtx.audioWorklet.addModule('./mic-processor.js?v=2');
               } catch (_) { }
 
               const workletNode = new AudioWorkletNode(inputCtx, 'mic-processor');
@@ -443,36 +420,39 @@ CORE BEHAVIORS:
 
               let micBuffer: Float32Array[] = [];
               let micBufferLength = 0;
-              const TARGET_BUFFER_LENGTH = 2048; // Accumulate ~42ms to reduce transmission latency
+              const TARGET_BUFFER_LENGTH = 4096; // Accumulate ~85ms to reduce WebSocket overhead and help VAD
 
               workletNode.port.onmessage = (ev: MessageEvent<any>) => {
                 if (!isConnectedRef.current) return;
 
                 if (ev.data.event === 'speech_start') {
-                  // User started speaking. If we were thinking, go back to listening.
-                  if (statusRef.current === 'thinking' || statusRef.current === 'idle') {
+                  // User started speaking. Interrupt AI if it's currently speaking!
+                  if (statusRef.current === 'thinking' || statusRef.current === 'idle' || statusRef.current === 'speaking') {
+                    if (statusRef.current === 'speaking') {
+                      stopActiveAudio();
+                    }
                     setStatus('listening');
                     statusRef.current = 'listening';
                   }
                   return;
                 } else if (ev.data.event === 'speech_end') {
-                  // User finished speaking. Stay in 'listening' mode to remove the "processing" visual bug.
-                  // We MUST NOT send turnComplete because it crashes the Gemini Live session when using realtimeInput!
-                  // We rely entirely on the server's VAD, which has a small natural delay.
+                  // User finished speaking.
+                  if (statusRef.current === 'listening') {
+                    setStatus('thinking');
+                    statusRef.current = 'thinking';
+                  }
                   return;
                 }
 
                 if (ev.data.type === 'audio') {
-                  let dataToPush = ev.data.data as Float32Array;
-                  if (isMutedRef.current || statusRef.current === 'speaking') {
-                    // Inject microscopic white noise instead of absolute zeros. 
-                    // Absolute zeros trigger Google's "dead microphone" disconnect timeout after ~10 seconds!
-                    dataToPush = new Float32Array(dataToPush.length);
-                    for (let i = 0; i < dataToPush.length; i++) {
-                      dataToPush[i] = (Math.random() - 0.5) * 0.0001; 
-                    }
+                  if (isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') {
+                    // Do NOT send any audio during silence/speaking/thinking.
+                    // Google's Live API stays perfectly connected without an active stream, 
+                    // and zero-filled packets actually trigger a hard server-side disconnect!
+                    return;
                   }
 
+                  let dataToPush = ev.data.data as Float32Array;
                   micBuffer.push(dataToPush);
                   micBufferLength += dataToPush.length;
 
@@ -488,7 +468,9 @@ CORE BEHAVIORS:
                     const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
                     
                     try {
-                      sessionRef.current?.sendRealtimeInput({ media: pcmBlob });
+                      if (isConnectedRef.current) {
+                        sessionRef.current?.sendRealtimeInput({ media: pcmBlob });
+                      }
                     } catch (err) { }
 
                     micBuffer = [];
@@ -519,21 +501,19 @@ CORE BEHAVIORS:
                         toolCallInProgressRef.current = false;
                       });
                       
-                      // instantly tell the AI it was successful so it starts speaking IMMEDIATELY with zero latency
+                      // Instantly tell the AI the image is ALREADY visible so it never narrates "I'm fetching an image"
                       try {
-                        sessionRef.current?.send({
-                          toolResponse: {
-                            functionResponses: [{ 
-                              id: call.id, 
-                              name: call.name, 
-                              response: { 
-                                result: {
-                                  status: "SUCCESS",
-                                  message: "Image search initiated. It will appear on screen in a moment. IMMEDIATELY continue your verbal explanation."
-                                }
-                              } 
-                            }]
-                          }
+                        sessionRef.current?.sendToolResponse({
+                          functionResponses: [{ 
+                            id: call.id, 
+                            name: call.name, 
+                            response: { 
+                              result: {
+                                status: "SUCCESS",
+                                message: "The image is now displayed on the student's screen. Do NOT mention the image or say you are showing anything. Just continue explaining the topic naturally as a teacher."
+                              }
+                            } 
+                          }]
                         });
                       } catch (e) {}
                     } else {
@@ -542,10 +522,8 @@ CORE BEHAVIORS:
                   } else if (call.name === 'close_visual') {
                     setVisualContext(prev => prev ? { ...prev, active: false } : null);
                     try {
-                      sessionRef.current?.send({
-                        toolResponse: {
-                          functionResponses: [{ id: call.id, name: call.name, response: { result: "Closed." } }]
-                        }
+                      sessionRef.current?.sendToolResponse({
+                        functionResponses: [{ id: call.id, name: call.name, response: { result: "Closed." } }]
                       });
                     } catch (e) {}
                     toolCallInProgressRef.current = false;
@@ -557,20 +535,16 @@ CORE BEHAVIORS:
                       ? `Image titled "${currentCtx.title}". URL: ${currentCtx.imageUrl}. Background info: ${currentCtx.explanation}. You can now 'see' the image using this URL.`
                       : `No image currently on screen.`;
                     try {
-                      sessionRef.current?.send({
-                        toolResponse: {
-                          functionResponses: [{ id: call.id, name: call.name, response: { result: resultText } }]
-                        }
+                      sessionRef.current?.sendToolResponse({
+                        functionResponses: [{ id: call.id, name: call.name, response: { result: resultText } }]
                       });
                     } catch (e) {}
                     toolCallInProgressRef.current = false;
                   } else {
                     // Fallback
                     try {
-                      sessionRef.current?.send({
-                        toolResponse: {
-                          functionResponses: [{ id: call.id, name: call.name, response: { result: "OK" } }]
-                        }
+                      sessionRef.current?.sendToolResponse({
+                        functionResponses: [{ id: call.id, name: call.name, response: { result: "OK" } }]
                       });
                     } catch (e) {}
                     toolCallInProgressRef.current = false;
@@ -674,7 +648,16 @@ CORE BEHAVIORS:
     };
   }, []);
 
+  // Pre-create AudioContexts at mount (suspended state) to avoid ~300ms delay on first tap
   useEffect(() => {
+    try {
+      if (!inputContextRef.current || inputContextRef.current.state === 'closed') {
+        inputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({ latencyHint: 'interactive' });
+      }
+      if (!outputContextRef.current || outputContextRef.current.state === 'closed') {
+        outputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({ sampleRate: AUDIO_SAMPLE_RATE_OUTPUT, latencyHint: 'interactive' });
+      }
+    } catch (_) { /* Will be created on first interaction instead */ }
     setStatus('idle');
   }, []);
 
@@ -738,14 +721,12 @@ CORE BEHAVIORS:
     // Dynamically inject the new name into the AI's brain without dropping the call
     if (newSettings.deviceName !== oldName && isConnected && sessionRef.current) {
       try {
-        sessionRef.current.send({
-          clientContent: {
-            turns: [{
-              role: 'user',
-              parts: [{ text: `SYSTEM OVERRIDE: The user just changed your name in the system settings! Forget your old name. Your NEW name is now strictly "${newSettings.deviceName}". Please immediately say a short greeting (in Marathi/English) introducing yourself with your new name to confirm you learned it! ALWAYS speak at an extremely fast, rapid-fire conversational pace.` }]
-            }],
-            turnComplete: true
-          }
+        sessionRef.current.sendClientContent({
+          turns: [{
+            role: 'user',
+            parts: [{ text: `SYSTEM OVERRIDE: The user just changed your name in the system settings! Forget your old name. Your NEW name is now strictly "${newSettings.deviceName}". Please immediately say a short greeting (in Marathi/English) introducing yourself with your new name to confirm you learned it! ALWAYS speak at an extremely fast, rapid-fire conversational pace.` }]
+          }],
+          turnComplete: true
         });
       } catch (e) {
         console.error("Failed to inject new name", e);

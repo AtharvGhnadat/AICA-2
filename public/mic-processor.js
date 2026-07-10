@@ -9,8 +9,8 @@ class MicProcessor extends AudioWorkletProcessor {
     this.framesSinceLastLoud = 1000;
     this.holdFrames = 50; // ~130ms hold time to drastically speed up silence detection
     
-    // Performance optimization: Buffer audio to avoid spamming postMessage 375 times a second
-    this.bufferSize = 2048;
+    // Performance optimization: Buffer audio to avoid spamming postMessage
+    this.bufferSize = 1024;  // Halved for faster voice detection (~21ms chunks)
     this.audioBuffer = new Float32Array(this.bufferSize);
     this.bufferIndex = 0;
     
@@ -46,10 +46,21 @@ class MicProcessor extends AudioWorkletProcessor {
           this.port.postMessage({ event: 'speech_end' });
         }
 
-        // Fill the internal buffer (using microscopic noise if muted/silent to prevent WebSocket drop)
+        // Apply Noise Gate: If silence is detected, send absolute zeros.
+        // Sending raw room noise or random white noise bloats the AI's context window 
+        // with high-entropy data, causing response times to skyrocket to 30-40 seconds!
+        // Zeros are perfectly compressed by the neural network and take 0 compute.
         const isSilent = this.framesSinceLastLoud > this.holdFrames;
+        
+        // If it's silent, just don't send anything. 
+        // Zero-filled arrays cause Google to crash the socket. White noise bloats the context.
+        // Dropping packets entirely is the only safe way.
+        if (isSilent) {
+           return true; // Keep processor alive, but do no work.
+        }
+
         for (let i = 0; i < channelData.length; i++) {
-          this.audioBuffer[this.bufferIndex++] = isSilent ? (Math.random() - 0.5) * 0.0001 : channelData[i];
+          this.audioBuffer[this.bufferIndex++] = channelData[i];
           
           if (this.bufferIndex >= this.bufferSize) {
             // Send chunk to main thread (huge CPU optimization)

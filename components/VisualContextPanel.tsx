@@ -1,5 +1,5 @@
 import React from 'react';
-import { VisualContext } from '../types/visualContext';
+import { VisualContext } from '../types';
 import { TouchScrollArea } from './TouchScrollArea';
 import { StatusBadge } from './StatusBadge';
 import { twMerge } from 'tailwind-merge';
