@@ -444,27 +444,42 @@ CORE BEHAVIORS:
                 if (!isConnectedRef.current) return;
 
                 if (ev.data.event === 'speech_start') {
+                  if (statusRef.current === 'idle') {
+                    setStatus('listening');
+                    statusRef.current = 'listening';
+                  }
                   return;
                 } else if (ev.data.event === 'speech_end') {
-                  // FLUSH ANY REMAINING AUDIO!
-                  if (micBufferLength > 0) {
-                    const mergedBuffer = new Float32Array(micBufferLength);
-                    let offset = 0;
-                    for (const b of micBuffer) {
-                      mergedBuffer.set(b, offset);
-                      offset += b.length;
+                  if (statusRef.current === 'listening') {
+                    setStatus('thinking');
+                    statusRef.current = 'thinking';
+
+                    // FLUSH ANY REMAINING AUDIO!
+                    if (micBufferLength > 0) {
+                      const mergedBuffer = new Float32Array(micBufferLength);
+                      let offset = 0;
+                      for (const b of micBuffer) {
+                        mergedBuffer.set(b, offset);
+                        offset += b.length;
+                      }
+                      const downsampledData = downsampleBuffer(mergedBuffer, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
+                      const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
+                      try {
+                        if (isConnectedRef.current && sessionRef.current) {
+                          sessionRef.current.sendRealtimeInput({ media: pcmBlob });
+                        }
+                      } catch (err) {
+                        console.error("Flush error", err);
+                      }
+                      micBuffer = [];
+                      micBufferLength = 0;
                     }
-                    const downsampledData = downsampleBuffer(mergedBuffer, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
-                    const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
+
                     try {
                       if (isConnectedRef.current && sessionRef.current) {
-                        sessionRef.current.sendRealtimeInput({ media: pcmBlob });
+                        sessionRef.current.sendClientContent({ turnComplete: true });
                       }
-                    } catch (err) {
-                      console.error("Flush error", err);
-                    }
-                    micBuffer = [];
-                    micBufferLength = 0;
+                    } catch (err) { }
                   }
                   return;
                 }

@@ -34,11 +34,15 @@ class MicProcessor extends AudioWorkletProcessor {
         const rms = Math.sqrt(sumSquare / channelData.length);
         
         if (rms > this.threshold) {
-          if (this.framesSinceLastLoud > this.holdFrames) {
-            this.port.postMessage({ event: 'speech_start' });
+          this.consecutiveLoudFrames = (this.consecutiveLoudFrames || 0) + 1;
+          if (this.consecutiveLoudFrames > 5) { // Require ~100ms of sustained sound to trigger
+            if (this.framesSinceLastLoud > this.holdFrames) {
+              this.port.postMessage({ event: 'speech_start' });
+            }
+            this.framesSinceLastLoud = 0;
           }
-          this.framesSinceLastLoud = 0;
         } else {
+          this.consecutiveLoudFrames = 0;
           this.framesSinceLastLoud++;
         }
 
@@ -47,16 +51,10 @@ class MicProcessor extends AudioWorkletProcessor {
         }
 
         // Apply Noise Gate: If silence is detected, send absolute zeros.
-        // Sending raw room noise or random white noise bloats the AI's context window 
-        // with high-entropy data, causing response times to skyrocket to 30-40 seconds!
-        // Zeros are perfectly compressed by the neural network and take 0 compute.
         const isSilent = this.framesSinceLastLoud > this.holdFrames;
         
-        // If it's silent, just don't send anything. 
-        // Zero-filled arrays cause Google to crash the socket. White noise bloats the context.
-        // Dropping packets entirely is the only safe way.
         if (isSilent) {
-           return true; // Keep processor alive, but do no work.
+           return true; 
         }
 
         for (let i = 0; i < channelData.length; i++) {
