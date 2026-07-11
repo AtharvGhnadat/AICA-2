@@ -429,7 +429,7 @@ CORE BEHAVIORS:
 
             const setupWorklet = async () => {
               try {
-                await inputCtx.audioWorklet.addModule('./mic-processor.js?v=2');
+                await inputCtx.audioWorklet.addModule('./mic-processor.js?v=4');
               } catch (_) { }
 
               const workletNode = new AudioWorkletNode(inputCtx, 'mic-processor');

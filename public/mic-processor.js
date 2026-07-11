@@ -35,7 +35,7 @@ class MicProcessor extends AudioWorkletProcessor {
         
         if (rms > this.threshold) {
           this.consecutiveLoudFrames = (this.consecutiveLoudFrames || 0) + 1;
-          if (this.consecutiveLoudFrames > 5) { // Require ~100ms of sustained sound to trigger
+          if (this.consecutiveLoudFrames > 25) { // Require ~200ms of sustained sound to trigger
             if (this.framesSinceLastLoud > this.holdFrames) {
               this.port.postMessage({ event: 'speech_start' });
             }
