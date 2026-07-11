@@ -7,7 +7,7 @@ class MicProcessor extends AudioWorkletProcessor {
     super();
     this.threshold = 0.01; // Default threshold
     this.framesSinceLastLoud = 1000;
-    this.holdFrames = 50; // ~130ms hold time to drastically speed up silence detection
+    this.holdFrames = 300; // ~800ms hold time to prevent premature cutoffs and processing loops
     
     // Performance optimization: Buffer audio to avoid spamming postMessage
     this.bufferSize = 1024;  // Halved for faster voice detection (~21ms chunks)
