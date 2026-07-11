@@ -262,7 +262,7 @@ const App: React.FC = () => {
           isTurnCompleteRef.current = true;
           transitionToListening();
         }
-      }, 1500); // 1.5 seconds of silence while "speaking" triggers a force-reset
+      }, 4500); // 4.5 seconds of silence while "speaking" triggers a force-reset
     }
     return () => { if (interval) clearInterval(interval); };
   }, [status, transitionToListening]);
