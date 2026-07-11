@@ -444,51 +444,30 @@ CORE BEHAVIORS:
                 if (!isConnectedRef.current) return;
 
                 if (ev.data.event === 'speech_start') {
-                  // User started speaking. Interrupt AI if it's currently speaking!
-                  if (statusRef.current === 'thinking' || statusRef.current === 'idle' || statusRef.current === 'speaking') {
-                    if (statusRef.current === 'speaking') {
-                      stopActiveAudio();
-                    }
-                    setStatus('listening');
-                    statusRef.current = 'listening';
-                  }
                   return;
                 } else if (ev.data.event === 'speech_end') {
-                    // User finished speaking.
-                    if (statusRef.current === 'listening') {
-                      setStatus('thinking');
-                      statusRef.current = 'thinking';
-
-                      // FLUSH ANY REMAINING AUDIO!
-                      if (micBufferLength > 0) {
-                        const mergedBuffer = new Float32Array(micBufferLength);
-                        let offset = 0;
-                        for (const b of micBuffer) {
-                          mergedBuffer.set(b, offset);
-                          offset += b.length;
-                        }
-                        const downsampledData = downsampleBuffer(mergedBuffer, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
-                        const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
-                        try {
-                          if (isConnectedRef.current && sessionRef.current) {
-                            sessionRef.current.sendRealtimeInput({ media: pcmBlob });
-                          }
-                        } catch (err) {
-                          console.error("Flush error", err);
-                        }
-                        micBuffer = [];
-                        micBufferLength = 0;
-                      }
-                      
-                      // Optionally signal end of turn (though server VAD usually handles this, it speeds up response)
-                      try {
-                        if (isConnectedRef.current && sessionRef.current) {
-                          sessionRef.current.sendClientContent({ turnComplete: true });
-                        }
-                      } catch (err) { }
+                  // FLUSH ANY REMAINING AUDIO!
+                  if (micBufferLength > 0) {
+                    const mergedBuffer = new Float32Array(micBufferLength);
+                    let offset = 0;
+                    for (const b of micBuffer) {
+                      mergedBuffer.set(b, offset);
+                      offset += b.length;
                     }
-                    return;
+                    const downsampledData = downsampleBuffer(mergedBuffer, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
+                    const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
+                    try {
+                      if (isConnectedRef.current && sessionRef.current) {
+                        sessionRef.current.sendRealtimeInput({ media: pcmBlob });
+                      }
+                    } catch (err) {
+                      console.error("Flush error", err);
+                    }
+                    micBuffer = [];
+                    micBufferLength = 0;
                   }
+                  return;
+                }
 
                 if (ev.data.type === 'audio') {
                   if (isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') {
