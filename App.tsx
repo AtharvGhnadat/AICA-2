@@ -201,9 +201,9 @@ const App: React.FC = () => {
   useEffect(() => { visualContextRef.current = visualContext; }, [visualContext]);
 
   const clearTimers = useCallback(() => {
-    if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-    if (postSpeechTimerRef.current) { clearTimeout(postSpeechTimerRef.current); postSpeechTimerRef.current = null; }
-    if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+    if (thinkingTimerRef.current) clearTimeout(thinkingTimerRef.current);
+    if (postSpeechTimerRef.current) clearTimeout(postSpeechTimerRef.current);
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
   }, []);
 
   const handleUpdateSettings = (updates: Partial<Settings>) => {
@@ -429,87 +429,23 @@ CORE BEHAVIORS:
 
             const setupWorklet = async () => {
               try {
-                await inputCtx.audioWorklet.addModule('./mic-processor.js?v=4');
+                await inputCtx.audioWorklet.addModule('./mic-processor.js?v=5');
               } catch (_) { }
 
               const workletNode = new AudioWorkletNode(inputCtx, 'mic-processor');
               workletNode.port.postMessage({ type: 'SET_SENSITIVITY', value: settingsRef.current.sensitivity });
               workletNodeRef.current = workletNode;
 
-              let micBuffer: Float32Array[] = [];
-              let micBufferLength = 0;
-              const TARGET_BUFFER_LENGTH = 4096; // Accumulate ~85ms to reduce WebSocket overhead and help VAD
-
               workletNode.port.onmessage = (ev: MessageEvent<any>) => {
                 if (!isConnectedRef.current) return;
 
-                if (ev.data.event === 'speech_start') {
-                  if (statusRef.current === 'idle') {
-                    setStatus('listening');
-                    statusRef.current = 'listening';
-                  }
-                  return;
-                } else if (ev.data.event === 'speech_end') {
-                  if (statusRef.current === 'listening') {
-                    setStatus('thinking');
-                    statusRef.current = 'thinking';
-
-                    // FLUSH ANY REMAINING AUDIO!
-                    if (micBufferLength > 0) {
-                      const mergedBuffer = new Float32Array(micBufferLength);
-                      let offset = 0;
-                      for (const b of micBuffer) {
-                        mergedBuffer.set(b, offset);
-                        offset += b.length;
-                      }
-                      const downsampledData = downsampleBuffer(mergedBuffer, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
-                      const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
-                      try {
-                        if (isConnectedRef.current && sessionRef.current) {
-                          sessionRef.current.sendRealtimeInput({ media: pcmBlob });
-                        }
-                      } catch (err) {
-                        console.error("Flush error", err);
-                      }
-                      micBuffer = [];
-                      micBufferLength = 0;
-                    }
-
-                    try {
-                      if (isConnectedRef.current && sessionRef.current) {
-                        sessionRef.current.sendClientContent({ turnComplete: true });
-                      }
-                    } catch (err) { }
-                  }
-                  return;
-                }
-
                 if (ev.data.type === 'audio') {
                   if (isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') {
-                    // Do NOT send any audio during silence/speaking/thinking.
-                    // Google's Live API stays perfectly connected without an active stream, 
-                    // and zero-filled packets actually trigger a hard server-side disconnect!
+                    // Do NOT send any audio during silence/speaking/thinking to avoid interrupting the AI.
                     return;
                   }
 
                   let dataToPush = ev.data.data as Float32Array;
-                  micBuffer.push(dataToPush);
-                  micBufferLength += dataToPush.length;
-
-                  if (micBufferLength >= TARGET_BUFFER_LENGTH) {
-                    const mergedBuffer = new Float32Array(micBufferLength);
-                    let offset = 0;
-                    for (const b of micBuffer) {
-                      mergedBuffer.set(b, offset);
-                      offset += b.length;
-                    }
-
-                    const downsampledData = downsampleBuffer(mergedBuffer, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
-                    const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
-                    
-                    try {
-                      if (isConnectedRef.current && sessionRef.current) {
-                        sessionRef.current.sendRealtimeInput({ media: pcmBlob });
                       }
                     } catch (err) {
                       isConnectedRef.current = false;
