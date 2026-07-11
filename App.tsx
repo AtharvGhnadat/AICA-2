@@ -446,15 +446,17 @@ CORE BEHAVIORS:
                   }
 
                   let dataToPush = ev.data.data as Float32Array;
-                      }
-                    } catch (err) {
-                      isConnectedRef.current = false;
-                      endSession();
-                      scheduleReconnect();
+                  const downsampledData = downsampleBuffer(dataToPush, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
+                  const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
+                  
+                  try {
+                    if (isConnectedRef.current && sessionRef.current) {
+                      sessionRef.current.sendRealtimeInput({ media: pcmBlob });
                     }
-
-                    micBuffer = [];
-                    micBufferLength = 0;
+                  } catch (err) {
+                    isConnectedRef.current = false;
+                    setStatus('error');
+                    endSession();
                   }
                 }
               };
