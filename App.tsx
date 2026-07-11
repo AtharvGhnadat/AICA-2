@@ -12,6 +12,18 @@ import { visualContextService } from './services/visualContextService';
 import { VisualContext } from './types';
 import { clsx } from 'clsx';
 
+// ─── WebSocket Spam Prevention ────────────────────────────────────────────────
+// Prevent native browser console spam "WebSocket is already in CLOSING or CLOSED state."
+// We throw a standard JS error so the GenAI SDK still knows it failed, but Chrome 
+// doesn't print its hardcoded native red error.
+const originalWsSend = window.WebSocket.prototype.send;
+window.WebSocket.prototype.send = function(data: any) {
+  if (this.readyState !== 1) { // 1 === WebSocket.OPEN
+    throw new Error('Socket closed');
+  }
+  return originalWsSend.call(this, data);
+};
+
 // ─── Audio Utils ──────────────────────────────────────────────────────────────
 
 function base64Decode(base64: string): Uint8Array {
@@ -281,12 +293,14 @@ const App: React.FC = () => {
 
   const endSession = useCallback(() => {
     clearTimers();
+    isConnectedRef.current = false;
     if (sessionRef.current) {
       try { sessionRef.current.close(); } catch (_) { }
       sessionRef.current = null;
     }
     if (workletNodeRef.current) {
       try { workletNodeRef.current.disconnect(); } catch (_) { }
+      try { workletNodeRef.current.port.close(); } catch (_) { }
       workletNodeRef.current = null;
     }
     if (sourceNodeRef.current) {
@@ -351,10 +365,14 @@ const App: React.FC = () => {
       const apiKey = currentSettings.geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || process.env.API_KEY || import.meta.env.VITE_API_KEY;
       if (!apiKey) throw new Error("API key missing. Enter it in Settings.");
 
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({ 
+        apiKey, 
+        apiVersion: 'v1alpha', 
+        httpOptions: { apiVersion: 'v1alpha' } 
+      });
 
       const session = await ai.live.connect({
-        model: 'models/gemini-2.0-flash-exp',
+        model: 'models/gemini-2.5-flash-native-audio-latest',
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } } },
@@ -402,7 +420,7 @@ CORE BEHAVIORS:
         callbacks: {
           onopen: () => {
             setIsConnected(true);
-            reconnectAttemptsRef.current = 0;
+            isConnectedRef.current = true;
             setStatus('listening');
             if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
 
@@ -436,13 +454,41 @@ CORE BEHAVIORS:
                   }
                   return;
                 } else if (ev.data.event === 'speech_end') {
-                  // User finished speaking.
-                  if (statusRef.current === 'listening') {
-                    setStatus('thinking');
-                    statusRef.current = 'thinking';
+                    // User finished speaking.
+                    if (statusRef.current === 'listening') {
+                      setStatus('thinking');
+                      statusRef.current = 'thinking';
+
+                      // FLUSH ANY REMAINING AUDIO!
+                      if (micBufferLength > 0) {
+                        const mergedBuffer = new Float32Array(micBufferLength);
+                        let offset = 0;
+                        for (const b of micBuffer) {
+                          mergedBuffer.set(b, offset);
+                          offset += b.length;
+                        }
+                        const downsampledData = downsampleBuffer(mergedBuffer, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
+                        const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
+                        try {
+                          if (isConnectedRef.current && sessionRef.current) {
+                            sessionRef.current.sendRealtimeInput({ media: pcmBlob });
+                          }
+                        } catch (err) {
+                          console.error("Flush error", err);
+                        }
+                        micBuffer = [];
+                        micBufferLength = 0;
+                      }
+                      
+                      // Optionally signal end of turn (though server VAD usually handles this, it speeds up response)
+                      try {
+                        if (isConnectedRef.current && sessionRef.current) {
+                          sessionRef.current.sendClientContent({ turnComplete: true });
+                        }
+                      } catch (err) { }
+                    }
+                    return;
                   }
-                  return;
-                }
 
                 if (ev.data.type === 'audio') {
                   if (isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') {
@@ -468,10 +514,14 @@ CORE BEHAVIORS:
                     const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
                     
                     try {
-                      if (isConnectedRef.current) {
-                        sessionRef.current?.sendRealtimeInput({ media: pcmBlob });
+                      if (isConnectedRef.current && sessionRef.current) {
+                        sessionRef.current.sendRealtimeInput({ media: pcmBlob });
                       }
-                    } catch (err) { }
+                    } catch (err) {
+                      isConnectedRef.current = false;
+                      endSession();
+                      scheduleReconnect();
+                    }
 
                     micBuffer = [];
                     micBufferLength = 0;
@@ -487,6 +537,8 @@ CORE BEHAVIORS:
             setupWorklet().catch(console.error);
           },
           onmessage: (message: LiveServerMessage) => {
+            // Reset reconnect attempts only when we successfully receive data from the server
+            reconnectAttemptsRef.current = 0;
             
             if (message.toolCall) {
               const calls = message.toolCall.functionCalls;
@@ -618,16 +670,17 @@ CORE BEHAVIORS:
           onerror: (e: any) => {
             setErrorMessage('Connection Error');
             setStatus('error');
-            setIsConnected(false);
-            sessionRef.current = null;
+            endSession();
             scheduleReconnect();
           },
           onclose: (e: any) => {
-            setIsConnected(false);
-            sessionRef.current = null;
+            console.warn(`WebSocket closed. Code: ${e.code}, Reason: ${e.reason}`);
             if (statusRef.current !== 'error') {
               setStatus('idle');
+              endSession();
               scheduleReconnect();
+            } else {
+              endSession();
             }
           },
         },
