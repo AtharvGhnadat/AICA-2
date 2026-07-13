@@ -193,6 +193,9 @@ const App: React.FC = () => {
   const postSpeechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visualContextRef = useRef<Partial<VisualContext> | null>(null);
 
+  const consecutiveSilenceRef = useRef(0);
+  const userHasSpokenRef = useRef(false);
+
   const currentInputTranscription = useRef('');
 
   useEffect(() => { 
@@ -461,6 +464,23 @@ CORE BEHAVIORS:
                   try {
                     if (isConnectedRef.current && sessionRef.current) {
                       sessionRef.current.sendRealtimeInput({ media: pcmBlob });
+                      
+                      if (ev.data.isSilent) {
+                        if (userHasSpokenRef.current) {
+                          consecutiveSilenceRef.current++;
+                          // ~20 chunks * 42ms = ~840ms of silence
+                          if (consecutiveSilenceRef.current === 20) {
+                            try {
+                              sessionRef.current.sendClientContent({ turnComplete: true });
+                              setStatus('thinking');
+                            } catch (e) {}
+                            userHasSpokenRef.current = false;
+                          }
+                        }
+                      } else {
+                        userHasSpokenRef.current = true;
+                        consecutiveSilenceRef.current = 0;
+                      }
                     }
                   } catch (err) {
                     isConnectedRef.current = false;

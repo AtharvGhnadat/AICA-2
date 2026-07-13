@@ -29,13 +29,15 @@ class MicProcessor extends AudioWorkletProcessor {
           if (peak < threshold) isSilent = true;
         }
 
-        if (!isSilent) {
-          for (let i = 0; i < channelData.length; i++) {
-            this.audioBuffer[this.bufferIndex++] = channelData[i];
-            if (this.bufferIndex >= this.bufferSize) {
-              this.port.postMessage({ type: 'audio', data: new Float32Array(this.audioBuffer) });
-              this.bufferIndex = 0;
-            }
+        for (let i = 0; i < channelData.length; i++) {
+          this.audioBuffer[this.bufferIndex++] = isSilent ? 0.0 : channelData[i];
+          if (this.bufferIndex >= this.bufferSize) {
+            this.port.postMessage({ 
+              type: 'audio', 
+              data: new Float32Array(this.audioBuffer),
+              isSilent: isSilent
+            });
+            this.bufferIndex = 0;
           }
         }
       }
