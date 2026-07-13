@@ -93,7 +93,7 @@ function downsampleBuffer(buffer: Float32Array, fromRate: number, toRate: number
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const POST_SPEECH_DELAY_MS = 20;
+const POST_SPEECH_DELAY_MS = 250;
 const THINKING_TIMEOUT_MS = 8000;
 const RECONNECT_DELAY_MS = 3000;
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -148,7 +148,12 @@ function persistSerperKey(key: string) {
 }
 
 const App: React.FC = () => {
-  const [status, setStatus] = useState<DeviceStatus>('idle');
+  const [status, _setStatus] = useState<DeviceStatus>('idle');
+  const statusRef = useRef<DeviceStatus>('idle');
+  const setStatus = useCallback((s: DeviceStatus) => {
+    statusRef.current = s;
+    _setStatus(s);
+  }, []);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => ({
     ...DEFAULT_SETTINGS,
@@ -173,8 +178,9 @@ const App: React.FC = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const startSessionRef = useRef<() => void>(() => {});
 
-  const statusRef = useRef<DeviceStatus>('idle');
   const settingsRef = useRef<Settings>(DEFAULT_SETTINGS);
   const isConnectedRef = useRef(false);
   const isMutedRef = useRef(false);
@@ -189,7 +195,6 @@ const App: React.FC = () => {
 
   const currentInputTranscription = useRef('');
 
-  useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => { 
     settingsRef.current = settings; 
     if (workletNodeRef.current) {
@@ -307,6 +312,10 @@ const App: React.FC = () => {
       try { sourceNodeRef.current.disconnect(); } catch (_) { }
       sourceNodeRef.current = null;
     }
+    if (gainNodeRef.current) {
+      try { gainNodeRef.current.disconnect(); } catch (_) { }
+      gainNodeRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
@@ -327,7 +336,7 @@ const App: React.FC = () => {
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null;
       if (!isConnectedRef.current && statusRef.current !== 'thinking') {
-        startSession();
+        startSessionRef.current();
       }
     }, delay);
   }, []);
@@ -422,6 +431,7 @@ CORE BEHAVIORS:
             setIsConnected(true);
             isConnectedRef.current = true;
             setStatus('listening');
+            reconnectAttemptsRef.current = 0;
             if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
 
             const inputCtx = inputContextRef.current!;
@@ -469,9 +479,6 @@ CORE BEHAVIORS:
             setupWorklet().catch(console.error);
           },
           onmessage: (message: LiveServerMessage) => {
-            // Reset reconnect attempts only when we successfully receive data from the server
-            reconnectAttemptsRef.current = 0;
-            
             if (message.toolCall) {
               const calls = message.toolCall.functionCalls;
               if (calls) {
@@ -538,41 +545,45 @@ CORE BEHAVIORS:
             }
 
 
-            const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            if (audioData) {
-              isTurnCompleteRef.current = false;
-              if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-              setStatus('speaking');
-
-              const ctx = outputContextRef.current!;
-              const now = ctx.currentTime;
-              if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
-
-              const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
-              const source = ctx.createBufferSource();
-              source.buffer = audioBuffer;
-
-              const gainNode = ctx.createGain();
-              // Boost output volume by 400% because mobile speakers are naturally quiet
-              gainNode.gain.value = (settingsRef.current.volume / 100) * 4.0;
-              source.connect(gainNode);
-              gainNode.connect(ctx.destination);
-
-              activeSourcesRef.current.add(source);
-
-              source.onended = () => {
-                activeSourcesRef.current.delete(source);
-                if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
-                  transitionToListening();
-                }
-              };
-
-              source.start(nextStartTimeRef.current);
-              nextStartTimeRef.current += audioBuffer.duration;
-            }
-
             if (message.serverContent?.modelTurn?.parts) {
               for (const part of message.serverContent.modelTurn.parts) {
+                const audioData = part.inlineData?.data;
+                if (audioData) {
+                  isTurnCompleteRef.current = false;
+                  if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
+                  setStatus('speaking');
+
+                  const ctx = outputContextRef.current!;
+                  const now = ctx.currentTime;
+                  if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
+
+                  const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
+                  const source = ctx.createBufferSource();
+                  source.buffer = audioBuffer;
+
+                  if (!gainNodeRef.current) {
+                    const gainNode = ctx.createGain();
+                    gainNode.connect(ctx.destination);
+                    gainNodeRef.current = gainNode;
+                  }
+                  
+                  // Boost output volume by 400% because mobile speakers are naturally quiet
+                  gainNodeRef.current.gain.value = (settingsRef.current.volume / 100) * 4.0;
+                  source.connect(gainNodeRef.current);
+
+                  activeSourcesRef.current.add(source);
+
+                  source.onended = () => {
+                    activeSourcesRef.current.delete(source);
+                    if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
+                      transitionToListening();
+                    }
+                  };
+
+                  source.start(nextStartTimeRef.current);
+                  nextStartTimeRef.current += audioBuffer.duration;
+                }
+
                 if (part.text) {
                   isTurnCompleteRef.current = false;
                   textBufferRef.current += part.text;
@@ -619,6 +630,7 @@ CORE BEHAVIORS:
       });
 
       sessionRef.current = session;
+      startSessionRef.current = startSession;
     } catch (err: any) {
       setErrorMessage(err?.message?.includes('microphone') ? 'Microphone access denied' : 'Init Failed – check API key & network');
       setStatus('error');
@@ -700,7 +712,7 @@ CORE BEHAVIORS:
 
   const handleSettingsSave = (newSettings: Settings) => {
     const oldName = settings.deviceName;
-    setSettings(newSettings);
+    handleUpdateSettings(newSettings);
     setIsSettingsOpen(false);
     
     // Dynamically inject the new name into the AI's brain without dropping the call
