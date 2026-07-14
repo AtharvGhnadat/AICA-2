@@ -1,123 +1,32 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality, Blob, Type } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { App as CapacitorApp } from '@capacitor/app';
-import { DeviceStatus, Settings, TranscriptionItem } from './types';
-import { DEFAULT_SETTINGS, AUDIO_SAMPLE_RATE_INPUT, AUDIO_SAMPLE_RATE_OUTPUT } from './constants';
+import { DeviceStatus, Settings, VisualContext } from './types';
+import { DEFAULT_SETTINGS } from './constants';
 import SettingsMenu from './components/SettingsMenu';
 import { SplitRobotLayout } from './components/SplitRobotLayout';
 import { RobotFacePanel } from './components/RobotFacePanel';
 import { VisualContextPanel } from './components/VisualContextPanel';
 import { visualContextService } from './services/visualContextService';
-
-import { VisualContext } from './types';
 import { clsx } from 'clsx';
-
-// ─── WebSocket Spam Prevention ────────────────────────────────────────────────
-// Prevent native browser console spam "WebSocket is already in CLOSING or CLOSED state."
-// We throw a standard JS error so the GenAI SDK still knows it failed, but Chrome 
-// doesn't print its hardcoded native red error.
-const originalWsSend = window.WebSocket.prototype.send;
-window.WebSocket.prototype.send = function(data: any) {
-  if (this.readyState !== 1) { // 1 === WebSocket.OPEN
-    throw new Error('Socket closed');
-  }
-  return originalWsSend.call(this, data);
-};
-
-// ─── Audio Utils ──────────────────────────────────────────────────────────────
-
-function base64Decode(base64: string): Uint8Array {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-function base64Encode(bytes: Uint8Array): string {
-  const chars = new Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) {
-    chars[i] = String.fromCharCode(bytes[i]);
-  }
-  return btoa(chars.join(''));
-}
-
-function decodeAudioBuffer(
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
-): AudioBuffer {
-  const dataInt16 = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
-  }
-  return buffer;
-}
-
-function createPCMBlob(data: Float32Array, sampleRate: number): Blob {
-  const l = data.length;
-  const int16 = new Int16Array(l);
-  for (let i = 0; i < l; i++) {
-    const s = Math.max(-1, Math.min(1, data[i]));
-    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-  }
-  return {
-    data: base64Encode(new Uint8Array(int16.buffer)),
-    mimeType: `audio/pcm;rate=${sampleRate}`,
-  };
-}
-
-function downsampleBuffer(buffer: Float32Array, fromRate: number, toRate: number): Float32Array {
-  if (fromRate === toRate) return buffer;
-  const ratio = fromRate / toRate;
-  const newLength = Math.round(buffer.length / ratio);
-  const result = new Float32Array(newLength);
-  for (let i = 0; i < newLength; i++) {
-    const pos = i * ratio;
-    const idx = Math.floor(pos);
-    const frac = pos - idx;
-    const a = buffer[idx] ?? 0;
-    const b = buffer[idx + 1] ?? a;
-    result[i] = a + frac * (b - a);
-  }
-  return result;
-}
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const POST_SPEECH_DELAY_MS = 250;
-const THINKING_TIMEOUT_MS = 8000;
-const RECONNECT_DELAY_MS = 3000;
-const MAX_RECONNECT_ATTEMPTS = 5;
 
 // ─── Persistent Storage Helpers ──────────────────────────────────────────────
 
 const STORAGE_KEY_NAME = 'emo_robot_name_swastik';
+const STORAGE_KEY_GEMINI = 'emo_robot_gemini_api_key_swastik';
+const STORAGE_KEY_SERPER = 'emo_robot_serper_api_key_swastik';
 
 function loadSavedName(): string {
   try {
     const saved = localStorage.getItem(STORAGE_KEY_NAME);
     if (saved && saved.trim().length > 0) return saved.trim();
-  } catch (_) { /* localStorage unavailable */ }
+  } catch (_) { }
   return DEFAULT_SETTINGS.deviceName;
 }
 
 function persistName(name: string) {
-  try {
-    localStorage.setItem(STORAGE_KEY_NAME, name.trim());
-  } catch (_) { /* localStorage unavailable */ }
+  try { localStorage.setItem(STORAGE_KEY_NAME, name.trim()); } catch (_) { }
 }
-
-const STORAGE_KEY_GEMINI = 'emo_robot_gemini_api_key_swastik';
-const STORAGE_KEY_SERPER = 'emo_robot_serper_api_key_swastik';
 
 function loadSavedGeminiKey(): string {
   try {
@@ -128,9 +37,7 @@ function loadSavedGeminiKey(): string {
 }
 
 function persistGeminiKey(key: string) {
-  try {
-    localStorage.setItem(STORAGE_KEY_GEMINI, key.trim());
-  } catch (_) { }
+  try { localStorage.setItem(STORAGE_KEY_GEMINI, key.trim()); } catch (_) { }
 }
 
 function loadSavedSerperKey(): string {
@@ -142,9 +49,21 @@ function loadSavedSerperKey(): string {
 }
 
 function persistSerperKey(key: string) {
-  try {
-    localStorage.setItem(STORAGE_KEY_SERPER, key.trim());
-  } catch (_) { }
+  try { localStorage.setItem(STORAGE_KEY_SERPER, key.trim()); } catch (_) { }
+}
+
+// ─── Utils ──────────────────────────────────────────────────────────────
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64data = (reader.result as string).split(',')[1];
+      resolve(base64data);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 const App: React.FC = () => {
@@ -154,15 +73,15 @@ const App: React.FC = () => {
     statusRef.current = s;
     _setStatus(s);
   }, []);
+  
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => ({
     ...DEFAULT_SETTINGS,
     deviceName: loadSavedName() || 'Swastik',
-    voiceName: 'Puck',
+    voiceName: 'Puck', // Now used for TTS engine selection
     geminiApiKey: loadSavedGeminiKey(),
     serperApiKey: loadSavedSerperKey(),
   }));
-  const [isConnected, setIsConnected] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
 
@@ -170,114 +89,44 @@ const App: React.FC = () => {
   const [visualContext, setVisualContext] = useState<Partial<VisualContext> | null>(null);
   const [visualStatus, setVisualStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
-  const inputContextRef = useRef<AudioContext | null>(null);
-  const outputContextRef = useRef<AudioContext | null>(null);
-  const nextStartTimeRef = useRef(0);
-  const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  const sessionRef = useRef<any>(null);
+  // Audio / Recording Refs
   const streamRef = useRef<MediaStream | null>(null);
-  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
-  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
-  const startSessionRef = useRef<() => void>(() => {});
-
-  const settingsRef = useRef<Settings>(DEFAULT_SETTINGS);
-  const isConnectedRef = useRef(false);
-  const isMutedRef = useRef(false);
-  const isTurnCompleteRef = useRef(true);
-  const toolCallInProgressRef = useRef(false);
-  const reconnectAttemptsRef = useRef(0);
-  const textBufferRef = useRef<string>("");
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const thinkingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const postSpeechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
+  
+  // Logic Refs
+  const isRecordingRef = useRef(false);
+  const silenceStartRef = useRef(Date.now());
+  const rafIdRef = useRef<number | null>(null);
+  const settingsRef = useRef<Settings>(settings);
+  const chatHistoryRef = useRef<any[]>([]);
   const visualContextRef = useRef<Partial<VisualContext> | null>(null);
 
-  const consecutiveSilenceRef = useRef(0);
-  const userHasSpokenRef = useRef(false);
-
-  const currentInputTranscription = useRef('');
-
-  useEffect(() => { 
-    settingsRef.current = settings; 
-    if (workletNodeRef.current) {
-      workletNodeRef.current.port.postMessage({ type: 'SET_SENSITIVITY', value: settings.sensitivity });
-    }
-  }, [settings]);
-  useEffect(() => { isConnectedRef.current = isConnected; }, [isConnected]);
-  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { visualContextRef.current = visualContext; }, [visualContext]);
 
-  const clearTimers = useCallback(() => {
-    if (thinkingTimerRef.current) clearTimeout(thinkingTimerRef.current);
-    if (postSpeechTimerRef.current) clearTimeout(postSpeechTimerRef.current);
-    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-  }, []);
-
-  const handleUpdateSettings = (updates: Partial<Settings>) => {
-    if (updates.deviceName !== undefined) {
-      persistName(updates.deviceName);
+  // TTS Engine Setup
+  const speakText = useCallback((text: string, onEnd?: () => void) => {
+    if (!('speechSynthesis' in window)) {
+      if (onEnd) onEnd();
+      return;
     }
-    if (updates.geminiApiKey !== undefined) {
-      persistGeminiKey(updates.geminiApiKey);
-    }
-    if (updates.serperApiKey !== undefined) {
-      persistSerperKey(updates.serperApiKey);
-    }
-    setSettings(prev => ({ ...prev, ...updates }));
-  };
-
-  const lastTapRef = useRef(0);
-
-  const stopActiveAudio = useCallback(() => {
-    activeSourcesRef.current.forEach(source => {
-      try { source.stop(); } catch (_) { }
-    });
-    activeSourcesRef.current.clear();
-    nextStartTimeRef.current = 0;
+    const utterance = new SpeechSynthesisUtterance(text);
+    // Find a good voice
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find(v => v.name.includes('Google UK English Male') || v.name.includes('Male')) || voices[0];
+    if (preferredVoice) utterance.voice = preferredVoice;
+    
+    utterance.volume = settingsRef.current.volume / 100;
+    utterance.rate = 1.1; // Slightly faster for conversational pace
+    
+    utterance.onend = () => { if (onEnd) onEnd(); };
+    utterance.onerror = () => { if (onEnd) onEnd(); };
+    
+    window.speechSynthesis.speak(utterance);
   }, []);
-
-  const transitionToListening = useCallback(() => {
-    if (postSpeechTimerRef.current) clearTimeout(postSpeechTimerRef.current);
-    postSpeechTimerRef.current = setTimeout(() => {
-      const cur = statusRef.current;
-      if (cur !== 'error' && cur !== 'idle') {
-        setStatus('listening');
-        // Auto-close visual context when AI finishes speaking to free up massive RAM on potato tablets
-        setVisualContext(prev => prev ? { ...prev, active: false } : null);
-      }
-      postSpeechTimerRef.current = null;
-    }, POST_SPEECH_DELAY_MS);
-  }, []);
-
-  const startThinkingTimeout = useCallback(() => {
-    if (thinkingTimerRef.current) clearTimeout(thinkingTimerRef.current);
-    thinkingTimerRef.current = setTimeout(() => {
-      if (statusRef.current === 'thinking') {
-        setStatus('listening');
-      }
-      thinkingTimerRef.current = null;
-    }, THINKING_TIMEOUT_MS);
-  }, []);
-
-  // Robust Fallback: If we are stuck in 'speaking' but no audio is playing, force back to listening.
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (status === 'speaking') {
-      interval = setInterval(() => {
-        if (activeSourcesRef.current.size === 0 && !toolCallInProgressRef.current) {
-          console.warn("Fallback: Audio finished but stuck in speaking state. Forcing listening transition.");
-          isTurnCompleteRef.current = true;
-          transitionToListening();
-        }
-      }, 4500); // 4.5 seconds of silence while "speaking" triggers a force-reset
-    }
-    return () => { if (interval) clearInterval(interval); };
-  }, [status, transitionToListening]);
-
-  // ─── Visual Context Logic ────────────────────────────────────────────────
-  // Topic relevance is handled entirely by Gemini's tool calls (show_visual/close_visual/check_visual).
-  // No client-side intent detection needed — eliminates latency from regex matching + relevance checks.
 
   const triggerImageSearch = async (text: string): Promise<Partial<VisualContext> | null> => {
     setVisualStatus('loading');
@@ -297,118 +146,49 @@ const App: React.FC = () => {
     }
   };
 
-  // ─── Session Lifecycle ────────────────────────────────────────────────────
-
-  const endSession = useCallback(() => {
-    clearTimers();
-    isConnectedRef.current = false;
-    if (sessionRef.current) {
-      try { sessionRef.current.close(); } catch (_) { }
-      sessionRef.current = null;
-    }
-    if (workletNodeRef.current) {
-      try { workletNodeRef.current.disconnect(); } catch (_) { }
-      try { workletNodeRef.current.port.close(); } catch (_) { }
-      workletNodeRef.current = null;
-    }
-    if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.disconnect(); } catch (_) { }
-      sourceNodeRef.current = null;
-    }
-    if (gainNodeRef.current) {
-      try { gainNodeRef.current.disconnect(); } catch (_) { }
-      gainNodeRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    stopActiveAudio();
-    setIsConnected(false);
-    setStatus('idle');
-  }, [stopActiveAudio, clearTimers]);
-
-  const scheduleReconnect = useCallback(() => {
-    if (reconnectTimerRef.current) return;
-    if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-      setErrorMessage('Connection lost – tap to retry');
+  const processAIResponse = async (audioBase64: string, mimeType: string) => {
+    setStatus('thinking');
+    const currentSettings = settingsRef.current;
+    const apiKey = currentSettings.geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || process.env.API_KEY || import.meta.env.VITE_API_KEY;
+    
+    if (!apiKey) {
+      setErrorMessage("API key missing. Enter it in Settings.");
+      setStatus('error');
       return;
     }
-    reconnectAttemptsRef.current++;
-    const delay = RECONNECT_DELAY_MS * reconnectAttemptsRef.current;
-    reconnectTimerRef.current = setTimeout(() => {
-      reconnectTimerRef.current = null;
-      if (!isConnectedRef.current && statusRef.current !== 'thinking') {
-        startSessionRef.current();
-      }
-    }, delay);
-  }, []);
 
-  const startSession = useCallback(async () => {
-    if (isConnectedRef.current) return;
-    endSession();
-    setErrorMessage(null);
+    const ai = new GoogleGenAI({ apiKey });
+    
+    const userMessage = {
+      role: 'user',
+      parts: [
+        { inlineData: { mimeType, data: audioBase64 } }
+      ]
+    };
+
+    const history = [...chatHistoryRef.current, userMessage];
 
     try {
-      setStatus('thinking');
-      startThinkingTimeout();
-
-      if (inputContextRef.current?.state === 'suspended') await inputContextRef.current.resume();
-      if (outputContextRef.current?.state === 'suspended') await outputContextRef.current.resume();
-
-      if (!inputContextRef.current || inputContextRef.current.state === 'closed') {
-        inputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({ latencyHint: 'interactive' });
-      }
-      if (!outputContextRef.current || outputContextRef.current.state === 'closed') {
-        outputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({ sampleRate: AUDIO_SAMPLE_RATE_OUTPUT, latencyHint: 'interactive' });
-      }
-
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Cannot access microphone.");
-      }
-
-      // Disable echoCancellation to force Android to use the loud 'Media' volume stream instead of the quiet 'Voice Call' stream
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
-      });
-      streamRef.current = stream;
-
-      const currentSettings = settingsRef.current;
-      const apiKey = currentSettings.geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || process.env.API_KEY || import.meta.env.VITE_API_KEY;
-      if (!apiKey) throw new Error("API key missing. Enter it in Settings.");
-
-      const ai = new GoogleGenAI({ 
-        apiKey,
-      });
-
-      const session = await ai.live.connect({
-        model: 'gemini-3.1-flash-live-preview',
+      const responseStream = await ai.models.generateContentStream({
+        model: 'gemini-2.0-flash',
+        contents: history,
         config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } } },
           systemInstruction: { parts: [{ text: `You are ${currentSettings.deviceName}, a world-class, friendly AI teacher assistant built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice.
-
 CRITICAL IDENTITY & LANGUAGE:
-- Your primary languages are Marathi and English. You must effortlessly understand both. Explain complex topics using a natural mix of simple Marathi and English (Hinglish/Maringlish style) to make it feel like a real Indian teacher.
+- Your primary languages are Marathi and English. You must effortlessly understand both. Explain complex topics using a natural mix of simple Marathi and English (Hinglish/Maringlish style).
 - Your name is ${currentSettings.deviceName}.
-- OUTPUT RULES: You MUST ONLY output the exact words you are going to speak out loud. DO NOT generate any text representing your internal thoughts, actions, or formatting like "**Greeting the User**". Your output MUST ONLY contain the spoken dialogue. Speak directly to the user as a natural human teacher.
-
-CORE BEHAVIORS:
-1. EXTREME SPEED & BREVITY: NEVER use conversational filler words (like "Alright", "Okay", "Let's see"). Respond instantly with maximum 1-2 punchy sentences. Speak rapidly. When asked to explain something, IMMEDIATELY start explaining out loud in parallel. Do NOT wait for images!
-2. VISUAL INTENT DETECTION: If the user asks for a NEW topic (e.g., "Explain OSI model"), you MUST call "show_visual" IN PARALLEL while you start your verbal explanation. Do not announce that you are showing an image. Just call the tool and keep talking. HOWEVER, if an image is ALREADY on screen and the user asks "explain this image", DO NOT call "show_visual" again! Just explain the current image verbally.
-3. IMAGE EXPLANATION: When "show_visual" is called and an image appears, explain it in a student-friendly way. If you forget what's currently on screen, call "check_visual".
-4. BLINDNESS WORKAROUND: If the user asks about specific colors or parts of an image on screen (e.g., "what is the green part?"), NEVER say "I cannot see the image", "I am guessing", or "I am using a tool to check". You MUST silently call "check_visual" to get the image context, and then verbally respond with absolute certainty as if you are staring directly at the screen. Give a direct answer immediately without narrating your process.
-5. CLOSING: To close the screen, call the "close_visual" tool if the user changes to an unrelated topic.
-6. SINGLE QUESTION FOCUS: If you hear a "stack of questions" or a long rambling conversation (like the user talking to friends), DO NOT try to answer everything! ONLY respond to the final, most direct question addressed to you. Ignore all background chatter.` }] },
+- OUTPUT RULES: You MUST ONLY output the exact words you are going to speak out loud. DO NOT generate any text representing your internal thoughts, actions, or formatting. Speak directly to the user as a natural human teacher.
+- Be extremely brief and fast. Maximum 2 sentences.
+- If asked about an image on screen, respond confidently. If asked to show something, you must call the show_visual tool.` }] },
           tools: [
             {
               functionDeclarations: [
                 {
                   name: "show_visual",
-                  description: "Displays a relevant image on the user's screen. Call this when explaining educational concepts.",
+                  description: "Displays a relevant image on the user's screen.",
                   parameters: {
                     type: Type.OBJECT,
-                    properties: { topic: { type: Type.STRING, description: "The exact Google Images search query to find the best image (e.g., 'Photosynthesis simple diagram', 'Human heart anatomy'). Be specific to get a good educational image." } },
+                    properties: { topic: { type: Type.STRING, description: "Google Images search query" } },
                     required: ["topic"]
                   }
                 },
@@ -416,299 +196,184 @@ CORE BEHAVIORS:
                   name: "close_visual",
                   description: "Closes the image panel on the screen.",
                   parameters: { type: Type.OBJECT, properties: {} }
-                },
-                {
-                  name: "check_visual",
-                  description: "Checks what image is currently displayed on the screen.",
-                  parameters: { type: Type.OBJECT, properties: {} }
                 }
               ]
             }
-          ],
-        },
-        callbacks: {
-          onopen: () => {
-            setIsConnected(true);
-            isConnectedRef.current = true;
-            setStatus('listening');
-            reconnectAttemptsRef.current = 0;
-            if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-
-            const inputCtx = inputContextRef.current!;
-            const nativeRate = inputCtx.sampleRate;
-
-            const setupWorklet = async () => {
-              try {
-                await inputCtx.audioWorklet.addModule('./mic-processor.js?v=5');
-              } catch (_) { }
-
-              const workletNode = new AudioWorkletNode(inputCtx, 'mic-processor');
-              workletNode.port.postMessage({ type: 'SET_SENSITIVITY', value: settingsRef.current.sensitivity });
-              workletNodeRef.current = workletNode;
-
-              workletNode.port.onmessage = (ev: MessageEvent<any>) => {
-                if (!isConnectedRef.current) return;
-
-                if (ev.data.type === 'audio') {
-                  if (isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') {
-                    // Do NOT send any audio during silence/speaking/thinking to avoid interrupting the AI.
-                    return;
-                  }
-
-                  let dataToPush = ev.data.data as Float32Array;
-                  const downsampledData = downsampleBuffer(dataToPush, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
-                  const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
-                  
-                  try {
-                    if (isConnectedRef.current && sessionRef.current) {
-                      sessionRef.current.sendRealtimeInput({ media: pcmBlob });
-                      
-                      if (ev.data.isSilent) {
-                        if (userHasSpokenRef.current) {
-                          consecutiveSilenceRef.current++;
-                          // ~20 chunks * 42ms = ~840ms of silence
-                          if (consecutiveSilenceRef.current === 20) {
-                            try {
-                              sessionRef.current.sendClientContent({ turns: [], turnComplete: true });
-                              setStatus('thinking');
-                            } catch (e) {}
-                            userHasSpokenRef.current = false;
-                          }
-                        }
-                      } else {
-                        userHasSpokenRef.current = true;
-                        consecutiveSilenceRef.current = 0;
-                      }
-                    }
-                  } catch (err) {
-                    isConnectedRef.current = false;
-                    setStatus('error');
-                    endSession();
-                  }
-                }
-              };
-
-              const source = inputCtx.createMediaStreamSource(stream);
-              sourceNodeRef.current = source;
-              source.connect(workletNode);
-            };
-
-            setupWorklet().catch(console.error);
-          },
-          onmessage: (message: LiveServerMessage) => {
-            if (message.toolCall) {
-              const calls = message.toolCall.functionCalls;
-              if (calls) {
-                for (const call of calls) {
-                  toolCallInProgressRef.current = true;
-                  if (call.name === 'show_visual') {
-                    const args = call.args as { topic: string };
-                    if (args.topic) {
-                      // Fire the search in the background immediately
-                      triggerImageSearch(args.topic).catch(console.error).finally(() => {
-                        toolCallInProgressRef.current = false;
-                      });
-                      
-                      // Instantly tell the AI the image is ALREADY visible so it never narrates "I'm fetching an image"
-                      try {
-                        sessionRef.current?.sendToolResponse({
-                          functionResponses: [{ 
-                            id: call.id, 
-                            name: call.name, 
-                            response: { 
-                              result: {
-                                status: "SUCCESS",
-                                message: "The image is now displayed on the student's screen. Do NOT mention the image or say you are showing anything. Just continue explaining the topic naturally as a teacher."
-                              }
-                            } 
-                          }]
-                        });
-                      } catch (e) {}
-                    } else {
-                      toolCallInProgressRef.current = false;
-                    }
-                  } else if (call.name === 'close_visual') {
-                    setVisualContext(prev => prev ? { ...prev, active: false } : null);
-                    try {
-                      sessionRef.current?.sendToolResponse({
-                        functionResponses: [{ id: call.id, name: call.name, response: { result: "Closed." } }]
-                      });
-                    } catch (e) {}
-                    toolCallInProgressRef.current = false;
-                  } else if (call.name === 'check_visual') {
-                    const currentCtx = visualContextRef.current;
-                    // Provide the title, explanation, AND the raw image URL. 
-                    // Gemini Multimodal can automatically fetch and "see" image URLs provided in context!
-                    const resultText = currentCtx?.active 
-                      ? `Image titled "${currentCtx.title}". URL: ${currentCtx.imageUrl}. Background info: ${currentCtx.explanation}. You can now 'see' the image using this URL.`
-                      : `No image currently on screen.`;
-                    try {
-                      sessionRef.current?.sendToolResponse({
-                        functionResponses: [{ id: call.id, name: call.name, response: { result: resultText } }]
-                      });
-                    } catch (e) {}
-                    toolCallInProgressRef.current = false;
-                  } else {
-                    // Fallback
-                    try {
-                      sessionRef.current?.sendToolResponse({
-                        functionResponses: [{ id: call.id, name: call.name, response: { result: "OK" } }]
-                      });
-                    } catch (e) {}
-                    toolCallInProgressRef.current = false;
-                  }
-                }
-              }
-            }
-
-
-            if (message.serverContent?.modelTurn?.parts) {
-              for (const part of message.serverContent.modelTurn.parts) {
-                const audioData = part.inlineData?.data;
-                if (audioData) {
-                  isTurnCompleteRef.current = false;
-                  if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-                  setStatus('speaking');
-
-                  const ctx = outputContextRef.current!;
-                  const now = ctx.currentTime;
-                  if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
-
-                  const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
-                  const source = ctx.createBufferSource();
-                  source.buffer = audioBuffer;
-
-                  if (!gainNodeRef.current) {
-                    const gainNode = ctx.createGain();
-                    gainNode.connect(ctx.destination);
-                    gainNodeRef.current = gainNode;
-                  }
-                  
-                  // Boost output volume by 400% because mobile speakers are naturally quiet
-                  gainNodeRef.current.gain.value = (settingsRef.current.volume / 100) * 4.0;
-                  source.connect(gainNodeRef.current);
-
-                  activeSourcesRef.current.add(source);
-
-                  source.onended = () => {
-                    activeSourcesRef.current.delete(source);
-                    if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
-                      transitionToListening();
-                    }
-                  };
-
-                  source.start(nextStartTimeRef.current);
-                  nextStartTimeRef.current += audioBuffer.duration;
-                }
-
-                if (part.text) {
-                  isTurnCompleteRef.current = false;
-                  textBufferRef.current += part.text;
-                  console.log("AI Text Output:", part.text);
-                }
-              }
-            }
-
-            if (message.serverContent?.turnComplete) {
-              isTurnCompleteRef.current = true;
-              if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-              if (activeSourcesRef.current.size === 0) {
-                transitionToListening();
-              }
-              // Reset text buffer at the end of the turn
-              textBufferRef.current = "";
-            }
-
-            if (message.serverContent?.interrupted) {
-              isTurnCompleteRef.current = true;
-              stopActiveAudio();
-              if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-              if (postSpeechTimerRef.current) { clearTimeout(postSpeechTimerRef.current); postSpeechTimerRef.current = null; }
-              setStatus('listening');
-            }
-          },
-          onerror: (e: any) => {
-            setErrorMessage('Connection Error');
-            setStatus('error');
-            endSession();
-            scheduleReconnect();
-          },
-          onclose: (e: any) => {
-            console.warn(`WebSocket closed. Code: ${e.code}, Reason: ${e.reason}`);
-            if (statusRef.current !== 'error') {
-              setStatus('idle');
-              endSession();
-              scheduleReconnect();
-            } else {
-              endSession();
-            }
-          },
-        },
+          ]
+        }
       });
 
-      sessionRef.current = session;
-      startSessionRef.current = startSession;
+      setStatus('speaking');
+      let fullResponseText = "";
+      
+      for await (const chunk of responseStream) {
+        if (chunk.functionCalls && chunk.functionCalls.length > 0) {
+          for (const call of chunk.functionCalls) {
+            if (call.name === 'show_visual') {
+              const args = call.args as any;
+              if (args.topic) {
+                triggerImageSearch(args.topic);
+                fullResponseText += " [Showing image] ";
+              }
+            } else if (call.name === 'close_visual') {
+              setVisualContext(prev => prev ? { ...prev, active: false } : null);
+            }
+          }
+        }
+        
+        if (chunk.text) {
+          fullResponseText += chunk.text;
+          // In a fully optimized app, we'd split by sentences here and stream to TTS.
+          // For simplicity and stability, we'll collect the short 1-2 sentences and speak at the end.
+        }
+      }
+
+      if (fullResponseText.trim().length > 0) {
+        chatHistoryRef.current = [...history, { role: 'model', parts: [{ text: fullResponseText }] }];
+        // Keep history short to save tokens
+        if (chatHistoryRef.current.length > 10) chatHistoryRef.current = chatHistoryRef.current.slice(chatHistoryRef.current.length - 10);
+        
+        speakText(fullResponseText.replace(/\[Showing image\]/g, ''), () => {
+          setStatus('listening');
+        });
+      } else {
+        setStatus('listening');
+      }
+
     } catch (err: any) {
-      setErrorMessage(err?.message?.includes('microphone') ? 'Microphone access denied' : 'Init Failed – check API key & network');
+      console.error(err);
+      setErrorMessage(err.message || "Failed to generate content");
       setStatus('error');
-      scheduleReconnect();
+      setTimeout(() => setStatus('listening'), 3000);
     }
-  }, [endSession, startThinkingTimeout, stopActiveAudio, transitionToListening]);
+  };
+
+  const startSilenceDetection = useCallback((stream: MediaStream) => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext!)();
+    }
+    const audioCtx = audioCtxRef.current;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    analyserRef.current = analyser;
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    
+    const checkAudio = () => {
+      if (statusRef.current === 'speaking' || statusRef.current === 'thinking' || isMuted) {
+        rafIdRef.current = requestAnimationFrame(checkAudio);
+        return; // Don't record or detect silence while AI is busy
+      }
+
+      analyser.getByteTimeDomainData(dataArray);
+      let isSilent = true;
+      let maxAmplitude = 0;
+      
+      for(let i=0; i<dataArray.length; i++) {
+        const amplitude = Math.abs(dataArray[i] - 128);
+        if (amplitude > maxAmplitude) maxAmplitude = amplitude;
+      }
+      
+      // Threshold based on sensitivity (1-100). Higher sensitivity = lower threshold.
+      const threshold = Math.max(2, 20 - (settingsRef.current.sensitivity / 5));
+      
+      if (maxAmplitude > threshold) {
+        isSilent = false;
+      }
+
+      if (!isSilent) {
+        silenceStartRef.current = Date.now();
+        if (!isRecordingRef.current) {
+          isRecordingRef.current = true;
+          audioChunksRef.current = [];
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'inactive') {
+            mediaRecorderRef.current.start(100);
+          }
+        }
+      } else {
+        // If silent for 1.5 seconds and we were recording, stop and send.
+        if (isRecordingRef.current && Date.now() - silenceStartRef.current > 1500) {
+          isRecordingRef.current = false;
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+          }
+        }
+      }
+
+      rafIdRef.current = requestAnimationFrame(checkAudio);
+    };
+
+    checkAudio();
+  }, [isMuted]);
+
+  const initMicrophone = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      streamRef.current = stream;
+
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        if (audioChunksRef.current.length === 0) return;
+        
+        const blob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType });
+        audioChunksRef.current = [];
+        
+        try {
+          const base64 = await blobToBase64(blob);
+          processAIResponse(base64, mediaRecorder.mimeType);
+        } catch (e) {
+          console.error("Failed to convert blob to base64");
+          setStatus('listening');
+        }
+      };
+
+      setStatus('listening');
+      startSilenceDetection(stream);
+
+    } catch (err) {
+      setErrorMessage("Microphone access denied");
+      setStatus('error');
+    }
+  }, [startSilenceDetection]);
+
+  const handleInteraction = useCallback(() => {
+    if (status === 'idle' || status === 'error') {
+      setErrorMessage(null);
+      initMicrophone();
+      // Initialize TTS engine early to avoid delay
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.getVoices();
+      }
+    }
+  }, [status, initMicrophone]);
 
   useEffect(() => {
     return () => {
-      clearTimers();
-      endSession();
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+      if (audioCtxRef.current) audioCtxRef.current.close();
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     };
   }, []);
 
-  // Pre-create AudioContexts at mount (suspended state) to avoid ~300ms delay on first tap
-  useEffect(() => {
-    try {
-      if (!inputContextRef.current || inputContextRef.current.state === 'closed') {
-        inputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({ latencyHint: 'interactive' });
-      }
-      if (!outputContextRef.current || outputContextRef.current.state === 'closed') {
-        outputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({ sampleRate: AUDIO_SAMPLE_RATE_OUTPUT, latencyHint: 'interactive' });
-      }
-    } catch (_) { /* Will be created on first interaction instead */ }
-    setStatus('idle');
-  }, []);
-
-  const handleInteraction = useCallback(() => {
-    if (!inputContextRef.current || inputContextRef.current.state === 'closed') {
-      inputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({ latencyHint: 'interactive' });
-    }
-    if (!outputContextRef.current || outputContextRef.current.state === 'closed') {
-      outputContextRef.current = new (window.AudioContext || window.webkitAudioContext!)({ sampleRate: AUDIO_SAMPLE_RATE_OUTPUT, latencyHint: 'interactive' });
-    }
-
-    if (inputContextRef.current?.state === 'suspended') inputContextRef.current.resume().catch(() => { });
-    if (outputContextRef.current?.state === 'suspended') outputContextRef.current.resume().catch(() => { });
-
-    if (!isConnected && status !== 'thinking') {
-      reconnectAttemptsRef.current = 0;
-      setErrorMessage(null);
-      startSession();
-    }
-  }, [isConnected, status, startSession]);
-
+  // UI Event Handlers
   const handleScreenTap = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    // Only handle double tap to open settings if clicking empty space (not a button)
     const target = e.target as HTMLElement;
     if (target.closest('button')) return;
-
-    const now = Date.now();
-    const timeSinceLastTap = now - lastTapRef.current;
-    lastTapRef.current = now;
-
-    if (timeSinceLastTap < 400 && timeSinceLastTap > 50) {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsSettingsOpen(true);
-      return;
-    }
-
     handleInteraction();
   }, [handleInteraction]);
 
@@ -717,48 +382,25 @@ CORE BEHAVIORS:
     setIsSettingsOpen(true);
   };
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        handleInteraction();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [handleInteraction]);
-
   const handleSettingsSave = (newSettings: Settings) => {
-    const oldName = settings.deviceName;
     handleUpdateSettings(newSettings);
     setIsSettingsOpen(false);
-    
-    // Dynamically inject the new name into the AI's brain without dropping the call
-    if (newSettings.deviceName !== oldName && isConnected && sessionRef.current) {
-      try {
-        sessionRef.current.sendClientContent({
-          turns: [{
-            role: 'user',
-            parts: [{ text: `SYSTEM OVERRIDE: The user just changed your name in the system settings! Forget your old name. Your NEW name is now strictly "${newSettings.deviceName}". Please immediately say a short greeting (in Marathi/English) introducing yourself with your new name to confirm you learned it! ALWAYS speak at an extremely fast, rapid-fire conversational pace.` }]
-          }],
-          turnComplete: true
-        });
-      } catch (e) {
-        console.error("Failed to inject new name", e);
-      }
-    }
+  };
+
+  const handleUpdateSettings = (updates: Partial<Settings>) => {
+    if (updates.deviceName !== undefined) persistName(updates.deviceName);
+    if (updates.geminiApiKey !== undefined) persistGeminiKey(updates.geminiApiKey);
+    if (updates.serperApiKey !== undefined) persistSerperKey(updates.serperApiKey);
+    setSettings(prev => ({ ...prev, ...updates }));
   };
 
   const handleReboot = useCallback((newSettings: Settings) => {
-    setIsSettingsOpen(false);
-    settingsRef.current = newSettings;
-    setSettings(newSettings);
-    endSession();
-    setTimeout(() => {
-      reconnectAttemptsRef.current = 0;
-      setErrorMessage(null);
-      startSession();
-    }, 300);
-  }, [endSession, startSession]);
+    handleSettingsSave(newSettings);
+    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    setStatus('idle');
+    setTimeout(handleInteraction, 300);
+  }, [handleInteraction]);
 
   const statusLabel = status === 'idle' ? 'TAP TO START' : status === 'listening' ? 'LISTENING' : status === 'speaking' ? 'SPEAKING' : status === 'thinking' ? 'PROCESSING' : status === 'error' ? 'ERROR' : 'STARTING';
   const statusDotColor = status === 'listening' ? 'bg-emerald-400' : status === 'speaking' ? 'bg-cyan-400' : status === 'thinking' ? 'bg-amber-400' : status === 'error' ? 'bg-red-400' : 'bg-zinc-600';
@@ -835,12 +477,8 @@ CORE BEHAVIORS:
                 try {
                   CapacitorApp.exitApp();
                 } catch (err) {
-                  // Fallbacks if they haven't rebuilt the APK yet
-                  if ((navigator as any).app) {
-                    (navigator as any).app.exitApp();
-                  } else {
-                    window.close();
-                  }
+                  if ((navigator as any).app) (navigator as any).app.exitApp();
+                  else window.close();
                 }
               }
             }}
