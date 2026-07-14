@@ -440,6 +440,16 @@ CORE BEHAVIORS:
                   if (statusRef.current === 'listening') {
                     setStatus('thinking');
                     statusRef.current = 'thinking';
+                    
+                    // The Live API will wait forever if we drop silence packets. 
+                    // We MUST send an explicit turnComplete signal so it generates a response.
+                    try {
+                      if (isConnectedRef.current && sessionRef.current) {
+                        sessionRef.current.send({ clientContent: { turnComplete: true } });
+                      }
+                    } catch (err) {
+                      console.error("Failed to send turnComplete:", err);
+                    }
                   }
                   return;
                 }
