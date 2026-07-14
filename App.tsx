@@ -554,41 +554,40 @@ CORE BEHAVIORS:
             }
 
 
-            const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            if (audioData) {
-              isTurnCompleteRef.current = false;
-              if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-              setStatus('speaking');
-
-              const ctx = outputContextRef.current!;
-              const now = ctx.currentTime;
-              if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
-
-              const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
-              const source = ctx.createBufferSource();
-              source.buffer = audioBuffer;
-
-              const gainNode = ctx.createGain();
-              // Boost output volume by 400% because mobile speakers are naturally quiet
-              gainNode.gain.value = (settingsRef.current.volume / 100) * 4.0;
-              source.connect(gainNode);
-              gainNode.connect(ctx.destination);
-
-              activeSourcesRef.current.add(source);
-
-              source.onended = () => {
-                activeSourcesRef.current.delete(source);
-                if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
-                  transitionToListening();
-                }
-              };
-
-              source.start(nextStartTimeRef.current);
-              nextStartTimeRef.current += audioBuffer.duration;
-            }
-
             if (message.serverContent?.modelTurn?.parts) {
               for (const part of message.serverContent.modelTurn.parts) {
+                const audioData = part.inlineData?.data;
+                if (audioData) {
+                  isTurnCompleteRef.current = false;
+                  if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
+                  setStatus('speaking');
+
+                  const ctx = outputContextRef.current!;
+                  const now = ctx.currentTime;
+                  if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
+
+                  const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
+                  const source = ctx.createBufferSource();
+                  source.buffer = audioBuffer;
+
+                  const gainNode = ctx.createGain();
+                  gainNode.gain.value = (settingsRef.current.volume / 100) * 4.0;
+                  source.connect(gainNode);
+                  gainNode.connect(ctx.destination);
+
+                  activeSourcesRef.current.add(source);
+
+                  source.onended = () => {
+                    activeSourcesRef.current.delete(source);
+                    if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
+                      transitionToListening();
+                    }
+                  };
+
+                  source.start(nextStartTimeRef.current);
+                  nextStartTimeRef.current += audioBuffer.duration;
+                }
+
                 if (part.text) {
                   isTurnCompleteRef.current = false;
                   textBufferRef.current += part.text;
