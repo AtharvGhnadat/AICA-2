@@ -37,7 +37,7 @@ export default async function handler(req: Request) {
     contents.push({ role: 'user', parts });
 
     const responseStream = await ai.models.generateContentStream({
-      model: 'gemini-2.5-flash', // The latest stable multimodal model
+      model: 'gemini-2.0-flash', 
       contents,
       config: {
         responseModalities: ["AUDIO"],
