@@ -378,13 +378,11 @@ const App: React.FC = () => {
       if (!apiKey) throw new Error("API key missing. Enter it in Settings.");
 
       const ai = new GoogleGenAI({ 
-        apiKey, 
-        apiVersion: 'v1alpha', 
-        httpOptions: { apiVersion: 'v1alpha' } 
+        apiKey,
       });
 
       const session = await ai.live.connect({
-        model: 'models/gemini-2.0-flash-exp',
+        model: 'models/gemini-2.0-flash',
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } } },
