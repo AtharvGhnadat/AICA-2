@@ -28,7 +28,7 @@ export default async function handler(req: Request) {
     if (audioData) {
       parts.push({
         inlineData: {
-          data: audioData,
+          data: typeof audioData === 'string' ? audioData : audioData.data,
           mimeType: 'audio/pcm;rate=16000',
         }
       });
