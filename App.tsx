@@ -12,18 +12,6 @@ import { visualContextService } from './services/visualContextService';
 import { VisualContext } from './types';
 import { clsx } from 'clsx';
 
-// ─── WebSocket Spam Prevention ────────────────────────────────────────────────
-// Prevent native browser console spam "WebSocket is already in CLOSING or CLOSED state."
-// We throw a standard JS error so the GenAI SDK still knows it failed, but Chrome 
-// doesn't print its hardcoded native red error.
-const originalWsSend = window.WebSocket.prototype.send;
-window.WebSocket.prototype.send = function(data: any) {
-  if (this.readyState !== 1) { // 1 === WebSocket.OPEN
-    throw new Error('Socket closed');
-  }
-  return originalWsSend.call(this, data);
-};
-
 // ─── Audio Utils ──────────────────────────────────────────────────────────────
 
 function base64Decode(base64: string): Uint8Array {
@@ -93,7 +81,7 @@ function downsampleBuffer(buffer: Float32Array, fromRate: number, toRate: number
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const POST_SPEECH_DELAY_MS = 250;
+const POST_SPEECH_DELAY_MS = 20;
 const THINKING_TIMEOUT_MS = 8000;
 const RECONNECT_DELAY_MS = 3000;
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -148,12 +136,7 @@ function persistSerperKey(key: string) {
 }
 
 const App: React.FC = () => {
-  const [status, _setStatus] = useState<DeviceStatus>('idle');
-  const statusRef = useRef<DeviceStatus>('idle');
-  const setStatus = useCallback((s: DeviceStatus) => {
-    statusRef.current = s;
-    _setStatus(s);
-  }, []);
+  const [status, setStatus] = useState<DeviceStatus>('idle');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(() => ({
     ...DEFAULT_SETTINGS,
@@ -178,9 +161,8 @@ const App: React.FC = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
-  const startSessionRef = useRef<() => void>(() => {});
 
+  const statusRef = useRef<DeviceStatus>('idle');
   const settingsRef = useRef<Settings>(DEFAULT_SETTINGS);
   const isConnectedRef = useRef(false);
   const isMutedRef = useRef(false);
@@ -193,11 +175,9 @@ const App: React.FC = () => {
   const postSpeechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visualContextRef = useRef<Partial<VisualContext> | null>(null);
 
-  const consecutiveSilenceRef = useRef(0);
-  const userHasSpokenRef = useRef(false);
-
   const currentInputTranscription = useRef('');
 
+  useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => { 
     settingsRef.current = settings; 
     if (workletNodeRef.current) {
@@ -209,9 +189,9 @@ const App: React.FC = () => {
   useEffect(() => { visualContextRef.current = visualContext; }, [visualContext]);
 
   const clearTimers = useCallback(() => {
-    if (thinkingTimerRef.current) clearTimeout(thinkingTimerRef.current);
-    if (postSpeechTimerRef.current) clearTimeout(postSpeechTimerRef.current);
-    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
+    if (postSpeechTimerRef.current) { clearTimeout(postSpeechTimerRef.current); postSpeechTimerRef.current = null; }
+    if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
   }, []);
 
   const handleUpdateSettings = (updates: Partial<Settings>) => {
@@ -230,7 +210,10 @@ const App: React.FC = () => {
   const lastTapRef = useRef(0);
 
   const stopActiveAudio = useCallback(() => {
-    window.speechSynthesis.cancel();
+    activeSourcesRef.current.forEach(source => {
+      try { source.stop(); } catch (_) { }
+    });
+    activeSourcesRef.current.clear();
     nextStartTimeRef.current = 0;
   }, []);
 
@@ -267,7 +250,7 @@ const App: React.FC = () => {
           isTurnCompleteRef.current = true;
           transitionToListening();
         }
-      }, 4500); // 4.5 seconds of silence while "speaking" triggers a force-reset
+      }, 1500); // 1.5 seconds of silence while "speaking" triggers a force-reset
     }
     return () => { if (interval) clearInterval(interval); };
   }, [status, transitionToListening]);
@@ -298,23 +281,17 @@ const App: React.FC = () => {
 
   const endSession = useCallback(() => {
     clearTimers();
-    isConnectedRef.current = false;
     if (sessionRef.current) {
       try { sessionRef.current.close(); } catch (_) { }
       sessionRef.current = null;
     }
     if (workletNodeRef.current) {
       try { workletNodeRef.current.disconnect(); } catch (_) { }
-      try { workletNodeRef.current.port.close(); } catch (_) { }
       workletNodeRef.current = null;
     }
     if (sourceNodeRef.current) {
       try { sourceNodeRef.current.disconnect(); } catch (_) { }
       sourceNodeRef.current = null;
-    }
-    if (gainNodeRef.current) {
-      try { gainNodeRef.current.disconnect(); } catch (_) { }
-      gainNodeRef.current = null;
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -336,7 +313,7 @@ const App: React.FC = () => {
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null;
       if (!isConnectedRef.current && statusRef.current !== 'thinking') {
-        startSessionRef.current();
+        startSession();
       }
     }, delay);
   }, []);
@@ -374,274 +351,289 @@ const App: React.FC = () => {
       const apiKey = currentSettings.geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || process.env.API_KEY || import.meta.env.VITE_API_KEY;
       if (!apiKey) throw new Error("API key missing. Enter it in Settings.");
 
-      const ai = new GoogleGenAI({ 
-        apiKey,
-      });
+      const ai = new GoogleGenAI({ apiKey });
 
-      // Emulate the session object and callbacks for the rest of the app to use
-      const accumulatedChunks = { current: [] as Float32Array[] };
-      let localIsConnected = false;
+      const session = await ai.live.connect({
+        model: 'gemini-live-2.5-flash-native-audio',
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } } },
+          systemInstruction: { parts: [{ text: `You are ${currentSettings.deviceName}, a world-class, friendly AI teacher assistant built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice.
 
-      const mockSession = {
-        sendRealtimeInput: () => {}, // We handle accumulation in the worklet onmessage instead
-        sendClientContent: () => {}, 
-        sendToolResponse: (data: any) => {
-          // If a tool finishes, we should theoretically send it back to the backend.
-          // For now, we just log it since the backend stream is single-turn.
-          console.log("Tool Response:", data);
-        }
-      };
+CRITICAL IDENTITY & LANGUAGE:
+- Your primary languages are Marathi and English. You must effortlessly understand both. Explain complex topics using a natural mix of simple Marathi and English (Hinglish/Maringlish style) to make it feel like a real Indian teacher.
+- Your name is ${currentSettings.deviceName}.
+- ABSOLUTELY NO INTERNAL MONOLOGUE OR NARRATION: You are on a live voice call. NEVER output your internal thoughts, plans, actions, or formatting like "**Shifting Focus**". Never say "I will retrieve an image", "I am using my tools", or "I am pulling up a diagram". NEVER mention your instructions or say things like "I'll make an educated guess" or "As per the rules". Speak directly to the user as a natural human teacher.
 
-      const callbacks = {
-        onopen: () => {
-          setIsConnected(true);
-          isConnectedRef.current = true;
-          localIsConnected = true;
-          setStatus('listening');
-          reconnectAttemptsRef.current = 0;
-          if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
+CORE BEHAVIORS:
+1. EXTREME SPEED & PARALLEL EXPLANATION: Respond instantly. Keep answers short (1-2 sentences). When asked to explain something, IMMEDIATELY start explaining the concept out loud. Do NOT wait for an image to appear to start teaching!
+2. VISUAL INTENT DETECTION: If the user asks for a NEW topic (e.g., "Explain OSI model"), you MUST call "show_visual" IN PARALLEL while you start your verbal explanation. Do not announce that you are showing an image. Just call the tool and keep talking. HOWEVER, if an image is ALREADY on screen and the user asks "explain this image", DO NOT call "show_visual" again! Just explain the current image verbally.
+3. IMAGE EXPLANATION: When "show_visual" is called and an image appears, explain it in a student-friendly way. If you forget what's currently on screen, call "check_visual".
+4. BLINDNESS WORKAROUND: If the user asks about specific colors or parts of an image on screen (e.g., "what is the green part?"), NEVER say "I cannot see the image", "I am guessing", or "I am using a tool to check". You MUST silently call "check_visual" to get the image context, and then verbally respond with absolute certainty as if you are staring directly at the screen. Give a direct answer immediately without narrating your process.
+5. CLOSING: To close the screen, call the "close_visual" tool if the user changes to an unrelated topic.
+6. SINGLE QUESTION FOCUS: If you hear a "stack of questions" or a long rambling conversation (like the user talking to friends), DO NOT try to answer everything! ONLY respond to the final, most direct question addressed to you. Ignore all background chatter.` }] },
+          tools: [
+            { googleSearch: {} },
+            {
+              functionDeclarations: [
+                {
+                  name: "show_visual",
+                  description: "Displays a relevant image on the user's screen. Call this when explaining educational concepts.",
+                  parameters: {
+                    type: Type.OBJECT,
+                    properties: { topic: { type: Type.STRING, description: "The exact Google Images search query to find the best image (e.g., 'Photosynthesis simple diagram', 'Human heart anatomy'). Be specific to get a good educational image." } },
+                    required: ["topic"]
+                  }
+                },
+                {
+                  name: "close_visual",
+                  description: "Closes the image panel on the screen.",
+                  parameters: { type: Type.OBJECT, properties: {} }
+                },
+                {
+                  name: "check_visual",
+                  description: "Checks what image is currently displayed on the screen.",
+                  parameters: { type: Type.OBJECT, properties: {} }
+                }
+              ]
+            }
+          ],
+        },
+        callbacks: {
+          onopen: () => {
+            setIsConnected(true);
+            reconnectAttemptsRef.current = 0;
+            setStatus('listening');
+            if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
 
-          const inputCtx = inputContextRef.current!;
-          const nativeRate = inputCtx.sampleRate;
+            const inputCtx = inputContextRef.current!;
+            const nativeRate = inputCtx.sampleRate;
 
-          const setupWorklet = async () => {
-            try {
-              await inputCtx.audioWorklet.addModule('./mic-processor.js?v=5');
-            } catch (_) { }
+            const setupWorklet = async () => {
+              try {
+                await inputCtx.audioWorklet.addModule('./mic-processor.js?v=2');
+              } catch (_) { }
 
-            const workletNode = new AudioWorkletNode(inputCtx, 'mic-processor');
-            workletNode.port.postMessage({ type: 'SET_SENSITIVITY', value: settingsRef.current.sensitivity });
-            workletNodeRef.current = workletNode;
+              const workletNode = new AudioWorkletNode(inputCtx, 'mic-processor');
+              workletNode.port.postMessage({ type: 'SET_SENSITIVITY', value: settingsRef.current.sensitivity });
+              workletNodeRef.current = workletNode;
 
-            workletNode.port.onmessage = (ev: MessageEvent<any>) => {
-              if (!isConnectedRef.current) return;
+              let micBuffer: Float32Array[] = [];
+              let micBufferLength = 0;
+              const TARGET_BUFFER_LENGTH = 4096; // Accumulate ~85ms to reduce WebSocket overhead and help VAD
 
-              if (ev.data.type === 'audio') {
-                if (isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') {
+              workletNode.port.onmessage = (ev: MessageEvent<any>) => {
+                if (!isConnectedRef.current) return;
+
+                if (ev.data.event === 'speech_start') {
+                  // User started speaking. Interrupt AI if it's currently speaking!
+                  if (statusRef.current === 'thinking' || statusRef.current === 'idle' || statusRef.current === 'speaking') {
+                    if (statusRef.current === 'speaking') {
+                      stopActiveAudio();
+                    }
+                    setStatus('listening');
+                    statusRef.current = 'listening';
+                  }
+                  return;
+                } else if (ev.data.event === 'speech_end') {
+                  // User finished speaking.
+                  if (statusRef.current === 'listening') {
+                    setStatus('thinking');
+                    statusRef.current = 'thinking';
+                  }
                   return;
                 }
 
-                let dataToPush = ev.data.data as Float32Array;
-                const downsampledData = downsampleBuffer(dataToPush, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
-                
-                // Accumulate audio chunks
-                accumulatedChunks.current.push(downsampledData);
-
-                if (ev.data.isSilent) {
-                  if (userHasSpokenRef.current) {
-                    consecutiveSilenceRef.current++;
-                    // ~35 chunks * 42ms = ~1.47s of silence
-                    if (consecutiveSilenceRef.current === 35) {
-                      userHasSpokenRef.current = false;
-                      
-                      // Ignore micro-blips (e.g. mic bumping) less than 200ms
-                      if (accumulatedChunks.current.length < 5) {
-                         accumulatedChunks.current = [];
-                         return;
-                      }
-                      
-                      setStatus('thinking');
-                      
-                      // Flush accumulated chunks into one base64 PCM string
-                      const totalLength = accumulatedChunks.current.reduce((acc, val) => acc + val.length, 0);
-                      const combined = new Float32Array(totalLength);
-                      let offset = 0;
-                      for (const chunk of accumulatedChunks.current) {
-                        combined.set(chunk, offset);
-                        offset += chunk.length;
-                      }
-                      accumulatedChunks.current = []; // Clear for next turn
-                      const finalPcmBase64 = createPCMBlob(combined, AUDIO_SAMPLE_RATE_INPUT);
-
-                      // Send to Vercel Backend
-                      fetch('/api/chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ audioData: finalPcmBase64, settings: settingsRef.current })
-                      }).then(async (res) => {
-                        if (!res.ok) {
-                           const errData = await res.json().catch(() => ({}));
-                           throw new Error("HTTP Backend Error: " + (errData.error || res.statusText));
-                        }
-                        const reader = res.body!.getReader();
-                        const decoder = new TextDecoder();
-                        let partialLine = "";
-                        
-                        while (true) {
-                          const { done, value } = await reader.read();
-                          if (done) break;
-                          
-                          const textChunk = decoder.decode(value, { stream: true });
-                          const lines = (partialLine + textChunk).split('\n');
-                          partialLine = lines.pop() || "";
-                          
-                          for (const line of lines) {
-                            if (!line.trim()) continue;
-                            try {
-                              const data = JSON.parse(line);
-                              if (data.type === 'audio') {
-                                callbacks.onmessage({ serverContent: { modelTurn: { parts: [{ inlineData: { data: data.audio } }] } } } as any);
-                              } else if (data.type === 'text') {
-                                callbacks.onmessage({ serverContent: { modelTurn: { parts: [{ text: data.text }] } } } as any);
-                              } else if (data.type === 'tool') {
-                                callbacks.onmessage({ toolCall: { functionCalls: [ data.functionCall ] } } as any);
-                              } else if (data.type === 'error') {
-                                console.error("Stream error from backend:", data.error);
-                              }
-                            } catch (e) {
-                              console.error("Parse error on chunk:", line);
-                            }
-                          }
-                        }
-                        callbacks.onmessage({ serverContent: { turnComplete: true } } as any);
-                      }).catch((e) => {
-                        console.error("Fetch error:", e);
-                        setStatus('error');
-                        endSession();
-                        scheduleReconnect();
-                      });
-                    }
+                if (ev.data.type === 'audio') {
+                  if (isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') {
+                    // Do NOT send any audio during silence/speaking/thinking.
+                    // Google's Live API stays perfectly connected without an active stream, 
+                    // and zero-filled packets actually trigger a hard server-side disconnect!
+                    return;
                   }
-                } else {
-                  userHasSpokenRef.current = true;
-                  consecutiveSilenceRef.current = 0;
+
+                  let dataToPush = ev.data.data as Float32Array;
+                  micBuffer.push(dataToPush);
+                  micBufferLength += dataToPush.length;
+
+                  if (micBufferLength >= TARGET_BUFFER_LENGTH) {
+                    const mergedBuffer = new Float32Array(micBufferLength);
+                    let offset = 0;
+                    for (const b of micBuffer) {
+                      mergedBuffer.set(b, offset);
+                      offset += b.length;
+                    }
+
+                    const downsampledData = downsampleBuffer(mergedBuffer, nativeRate, AUDIO_SAMPLE_RATE_INPUT);
+                    const pcmBlob = createPCMBlob(downsampledData, AUDIO_SAMPLE_RATE_INPUT);
+                    
+                    try {
+                      if (isConnectedRef.current) {
+                        sessionRef.current?.sendRealtimeInput({ media: pcmBlob });
+                      }
+                    } catch (err) { }
+
+                    micBuffer = [];
+                    micBufferLength = 0;
+                  }
                 }
-              }
+              };
+
+              const source = inputCtx.createMediaStreamSource(stream);
+              sourceNodeRef.current = source;
+              source.connect(workletNode);
             };
 
-            const source = inputCtx.createMediaStreamSource(stream);
-            sourceNodeRef.current = source;
-            source.connect(workletNode);
-          };
-
-          setupWorklet().catch(console.error);
-        },
-        onmessage: (message: LiveServerMessage) => {
-          if (message.toolCall) {
-            const calls = message.toolCall.functionCalls;
-            if (calls) {
-              for (const call of calls) {
-                toolCallInProgressRef.current = true;
-                if (call.name === 'show_visual') {
-                  const args = call.args as { topic: string };
-                  if (args.topic) {
-                    triggerImageSearch(args.topic).catch(console.error).finally(() => {
+            setupWorklet().catch(console.error);
+          },
+          onmessage: (message: LiveServerMessage) => {
+            
+            if (message.toolCall) {
+              const calls = message.toolCall.functionCalls;
+              if (calls) {
+                for (const call of calls) {
+                  toolCallInProgressRef.current = true;
+                  if (call.name === 'show_visual') {
+                    const args = call.args as { topic: string };
+                    if (args.topic) {
+                      // Fire the search in the background immediately
+                      triggerImageSearch(args.topic).catch(console.error).finally(() => {
+                        toolCallInProgressRef.current = false;
+                      });
+                      
+                      // Instantly tell the AI the image is ALREADY visible so it never narrates "I'm fetching an image"
+                      try {
+                        sessionRef.current?.sendToolResponse({
+                          functionResponses: [{ 
+                            id: call.id, 
+                            name: call.name, 
+                            response: { 
+                              result: {
+                                status: "SUCCESS",
+                                message: "The image is now displayed on the student's screen. Do NOT mention the image or say you are showing anything. Just continue explaining the topic naturally as a teacher."
+                              }
+                            } 
+                          }]
+                        });
+                      } catch (e) {}
+                    } else {
                       toolCallInProgressRef.current = false;
-                    });
+                    }
+                  } else if (call.name === 'close_visual') {
+                    setVisualContext(prev => prev ? { ...prev, active: false } : null);
+                    try {
+                      sessionRef.current?.sendToolResponse({
+                        functionResponses: [{ id: call.id, name: call.name, response: { result: "Closed." } }]
+                      });
+                    } catch (e) {}
+                    toolCallInProgressRef.current = false;
+                  } else if (call.name === 'check_visual') {
+                    const currentCtx = visualContextRef.current;
+                    // Provide the title, explanation, AND the raw image URL. 
+                    // Gemini Multimodal can automatically fetch and "see" image URLs provided in context!
+                    const resultText = currentCtx?.active 
+                      ? `Image titled "${currentCtx.title}". URL: ${currentCtx.imageUrl}. Background info: ${currentCtx.explanation}. You can now 'see' the image using this URL.`
+                      : `No image currently on screen.`;
+                    try {
+                      sessionRef.current?.sendToolResponse({
+                        functionResponses: [{ id: call.id, name: call.name, response: { result: resultText } }]
+                      });
+                    } catch (e) {}
+                    toolCallInProgressRef.current = false;
                   } else {
+                    // Fallback
+                    try {
+                      sessionRef.current?.sendToolResponse({
+                        functionResponses: [{ id: call.id, name: call.name, response: { result: "OK" } }]
+                      });
+                    } catch (e) {}
                     toolCallInProgressRef.current = false;
                   }
-                } else if (call.name === 'close_visual') {
-                  setVisualContext(prev => prev ? { ...prev, active: false } : null);
-                  toolCallInProgressRef.current = false;
-                } else if (call.name === 'check_visual') {
-                  toolCallInProgressRef.current = false;
-                } else {
-                  toolCallInProgressRef.current = false;
                 }
               }
             }
-          }
 
-          if (message.serverContent?.modelTurn?.parts) {
-            for (const part of message.serverContent.modelTurn.parts) {
-              if (part.text) {
-                isTurnCompleteRef.current = false;
-                textBufferRef.current += part.text;
-                console.log("AI Text Output:", part.text);
+
+            const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+            if (audioData) {
+              isTurnCompleteRef.current = false;
+              if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
+              setStatus('speaking');
+
+              const ctx = outputContextRef.current!;
+              const now = ctx.currentTime;
+              if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
+
+              const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
+              const source = ctx.createBufferSource();
+              source.buffer = audioBuffer;
+
+              const gainNode = ctx.createGain();
+              // Boost output volume by 400% because mobile speakers are naturally quiet
+              gainNode.gain.value = (settingsRef.current.volume / 100) * 4.0;
+              source.connect(gainNode);
+              gainNode.connect(ctx.destination);
+
+              activeSourcesRef.current.add(source);
+
+              source.onended = () => {
+                activeSourcesRef.current.delete(source);
+                if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
+                  transitionToListening();
+                }
+              };
+
+              source.start(nextStartTimeRef.current);
+              nextStartTimeRef.current += audioBuffer.duration;
+            }
+
+            if (message.serverContent?.modelTurn?.parts) {
+              for (const part of message.serverContent.modelTurn.parts) {
+                if (part.text) {
+                  isTurnCompleteRef.current = false;
+                  textBufferRef.current += part.text;
+                  console.log("AI Text Output:", part.text);
+                }
               }
             }
-          }
 
-          if (message.serverContent?.turnComplete) {
-            isTurnCompleteRef.current = true;
-            if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-            
-            const textToSpeak = textBufferRef.current.trim();
-            if (textToSpeak) {
-               setStatus('speaking');
-               window.speechSynthesis.cancel(); // Cancel ongoing speech
-               
-               const utterance = new SpeechSynthesisUtterance(textToSpeak);
-               const voices = window.speechSynthesis.getVoices();
-               
-               // Smart Voice Selection: Look for "Network", "Premium", or "Online" voices which sound identical to Gemini/ElevenLabs
-               let selectedVoice = null;
-               
-               // 1st Priority: Google Network Voice (English)
-               selectedVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Google') && v.name.includes('Network'));
-               
-               // 2nd Priority: Any Cloud/Online/Premium Voice
-               if (!selectedVoice) {
-                 selectedVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Online') || v.name.includes('Premium') || !v.localService));
-               }
-               
-               // 3rd Priority: Any English Voice
-               if (!selectedVoice) {
-                 selectedVoice = voices.find(v => v.lang.startsWith('en'));
-               }
-               
-               if (selectedVoice) {
-                 utterance.voice = selectedVoice;
-               }
-               
-               utterance.volume = settingsRef.current.volume / 100;
-               utterance.rate = 1.05; // Slightly faster for teaching vibe
-               
-               utterance.onend = () => {
-                 if (isTurnCompleteRef.current) {
-                   transitionToListening();
-                 }
-               };
-               
-               utterance.onerror = (e) => {
-                 console.error("Speech Synthesis Error:", e);
-                 if (isTurnCompleteRef.current) transitionToListening();
-               };
-               
-               window.speechSynthesis.speak(utterance);
-            } else {
-               transitionToListening();
+            if (message.serverContent?.turnComplete) {
+              isTurnCompleteRef.current = true;
+              if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
+              if (activeSourcesRef.current.size === 0) {
+                transitionToListening();
+              }
+              // Reset text buffer at the end of the turn
+              textBufferRef.current = "";
             }
-            
-            textBufferRef.current = "";
-          }
 
-          if (message.serverContent?.interrupted) {
-            isTurnCompleteRef.current = true;
-            stopActiveAudio();
-            if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-            if (postSpeechTimerRef.current) { clearTimeout(postSpeechTimerRef.current); postSpeechTimerRef.current = null; }
-            setStatus('listening');
-          }
-        },
-        onerror: (e: any) => {
-          setErrorMessage('Connection Error');
-          setStatus('error');
-          endSession();
-          scheduleReconnect();
-        },
-        onclose: (e: any) => {
-          if (statusRef.current !== 'error') {
-            setStatus('idle');
-            endSession();
+            if (message.serverContent?.interrupted) {
+              isTurnCompleteRef.current = true;
+              stopActiveAudio();
+              if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
+              if (postSpeechTimerRef.current) { clearTimeout(postSpeechTimerRef.current); postSpeechTimerRef.current = null; }
+              setStatus('listening');
+            }
+          },
+          onerror: (e: any) => {
+            setErrorMessage('Connection Error');
+            setStatus('error');
+            setIsConnected(false);
+            sessionRef.current = null;
             scheduleReconnect();
-          } else {
-            endSession();
-          }
+          },
+          onclose: (e: any) => {
+            setIsConnected(false);
+            sessionRef.current = null;
+            if (statusRef.current !== 'error') {
+              setStatus('idle');
+              scheduleReconnect();
+            }
+          },
         },
-      };
+      });
 
-      // Trigger the mock open event to start listening immediately
-      setTimeout(() => {
-         if (statusRef.current !== 'error') {
-            callbacks.onopen();
-         }
-      }, 50);
-
-      const session = mockSession as any;
-
-      startSessionRef.current = startSession;
+      sessionRef.current = session;
     } catch (err: any) {
       setErrorMessage(err?.message?.includes('microphone') ? 'Microphone access denied' : 'Init Failed – check API key & network');
       setStatus('error');
@@ -723,7 +715,7 @@ const App: React.FC = () => {
 
   const handleSettingsSave = (newSettings: Settings) => {
     const oldName = settings.deviceName;
-    handleUpdateSettings(newSettings);
+    setSettings(newSettings);
     setIsSettingsOpen(false);
     
     // Dynamically inject the new name into the AI's brain without dropping the call
