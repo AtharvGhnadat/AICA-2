@@ -230,7 +230,10 @@ const App: React.FC = () => {
   const lastTapRef = useRef(0);
 
   const stopActiveAudio = useCallback(() => {
-    window.speechSynthesis.cancel();
+    activeSourcesRef.current.forEach(source => {
+      try { source.stop(); } catch (_) { }
+    });
+    activeSourcesRef.current.clear();
     nextStartTimeRef.current = 0;
   }, []);
 
@@ -538,6 +541,42 @@ const App: React.FC = () => {
 
           if (message.serverContent?.modelTurn?.parts) {
             for (const part of message.serverContent.modelTurn.parts) {
+              const audioData = part.inlineData?.data;
+              if (audioData) {
+                isTurnCompleteRef.current = false;
+                if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
+                setStatus('speaking');
+
+                const ctx = outputContextRef.current!;
+                const now = ctx.currentTime;
+                if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
+
+                const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
+                const source = ctx.createBufferSource();
+                source.buffer = audioBuffer;
+
+                if (!gainNodeRef.current) {
+                  const gainNode = ctx.createGain();
+                  gainNode.connect(ctx.destination);
+                  gainNodeRef.current = gainNode;
+                }
+                
+                gainNodeRef.current.gain.value = (settingsRef.current.volume / 100) * 4.0;
+                source.connect(gainNodeRef.current);
+
+                activeSourcesRef.current.add(source);
+
+                source.onended = () => {
+                  activeSourcesRef.current.delete(source);
+                  if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
+                    transitionToListening();
+                  }
+                };
+
+                source.start(nextStartTimeRef.current);
+                nextStartTimeRef.current += audioBuffer.duration;
+              }
+
               if (part.text) {
                 isTurnCompleteRef.current = false;
                 textBufferRef.current += part.text;
@@ -549,39 +588,9 @@ const App: React.FC = () => {
           if (message.serverContent?.turnComplete) {
             isTurnCompleteRef.current = true;
             if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-            
-            const textToSpeak = textBufferRef.current.trim();
-            if (textToSpeak) {
-               setStatus('speaking');
-               // Cancel any ongoing speech
-               window.speechSynthesis.cancel();
-               
-               const utterance = new SpeechSynthesisUtterance(textToSpeak);
-               // Try to match the selected voice if possible, or fallback to default
-               const voices = window.speechSynthesis.getVoices();
-               const englishVoices = voices.filter(v => v.lang.startsWith('en'));
-               if (englishVoices.length > 0) {
-                 utterance.voice = englishVoices[0]; // Can be customized later
-               }
-               utterance.volume = settingsRef.current.volume / 100;
-               utterance.rate = 1.1; // Speak slightly faster to mimic the fast teacher vibe
-               
-               utterance.onend = () => {
-                 if (isTurnCompleteRef.current) {
-                   transitionToListening();
-                 }
-               };
-               
-               utterance.onerror = (e) => {
-                 console.error("Speech Synthesis Error:", e);
-                 if (isTurnCompleteRef.current) transitionToListening();
-               };
-               
-               window.speechSynthesis.speak(utterance);
-            } else {
-               transitionToListening();
+            if (activeSourcesRef.current.size === 0) {
+              transitionToListening();
             }
-            
             textBufferRef.current = "";
           }
 

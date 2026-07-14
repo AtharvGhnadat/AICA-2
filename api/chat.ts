@@ -37,9 +37,11 @@ export default async function handler(req: Request) {
     contents.push({ role: 'user', parts });
 
     const responseStream = await ai.models.generateContentStream({
-      model: 'gemini-2.5-flash', 
+      model: 'gemini-2.0-flash', 
       contents,
       config: {
+        responseModalities: ["AUDIO"],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: settings?.voiceName || "Puck" } } },
         systemInstruction: {
           parts: [{ text: `You are ${settings?.deviceName || 'Aica'}, a world-class, friendly AI teacher assistant built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice.
 CRITICAL IDENTITY & LANGUAGE:
