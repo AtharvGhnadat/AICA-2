@@ -170,7 +170,7 @@ const App: React.FC = () => {
 
     try {
       const responseStream = await ai.models.generateContentStream({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-3.1-flash',
         contents: history,
         config: {
           systemInstruction: { parts: [{ text: `You are ${currentSettings.deviceName}, a world-class, friendly AI teacher assistant built by Atharv, Pruthviraj, Abhilesh (Professor. Vikramsinh Saste). You speak in a warm, friendly male voice.
