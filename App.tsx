@@ -230,10 +230,7 @@ const App: React.FC = () => {
   const lastTapRef = useRef(0);
 
   const stopActiveAudio = useCallback(() => {
-    activeSourcesRef.current.forEach(source => {
-      try { source.stop(); } catch (_) { }
-    });
-    activeSourcesRef.current.clear();
+    window.speechSynthesis.cancel();
     nextStartTimeRef.current = 0;
   }, []);
 
@@ -548,42 +545,6 @@ const App: React.FC = () => {
 
           if (message.serverContent?.modelTurn?.parts) {
             for (const part of message.serverContent.modelTurn.parts) {
-              const audioData = part.inlineData?.data;
-              if (audioData) {
-                isTurnCompleteRef.current = false;
-                if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-                setStatus('speaking');
-
-                const ctx = outputContextRef.current!;
-                const now = ctx.currentTime;
-                if (nextStartTimeRef.current < now) nextStartTimeRef.current = now;
-
-                const audioBuffer = decodeAudioBuffer(base64Decode(audioData), ctx, AUDIO_SAMPLE_RATE_OUTPUT, 1);
-                const source = ctx.createBufferSource();
-                source.buffer = audioBuffer;
-
-                if (!gainNodeRef.current) {
-                  const gainNode = ctx.createGain();
-                  gainNode.connect(ctx.destination);
-                  gainNodeRef.current = gainNode;
-                }
-                
-                gainNodeRef.current.gain.value = (settingsRef.current.volume / 100) * 4.0;
-                source.connect(gainNodeRef.current);
-
-                activeSourcesRef.current.add(source);
-
-                source.onended = () => {
-                  activeSourcesRef.current.delete(source);
-                  if (activeSourcesRef.current.size === 0 && isTurnCompleteRef.current) {
-                    transitionToListening();
-                  }
-                };
-
-                source.start(nextStartTimeRef.current);
-                nextStartTimeRef.current += audioBuffer.duration;
-              }
-
               if (part.text) {
                 isTurnCompleteRef.current = false;
                 textBufferRef.current += part.text;
@@ -595,9 +556,54 @@ const App: React.FC = () => {
           if (message.serverContent?.turnComplete) {
             isTurnCompleteRef.current = true;
             if (thinkingTimerRef.current) { clearTimeout(thinkingTimerRef.current); thinkingTimerRef.current = null; }
-            if (activeSourcesRef.current.size === 0) {
-              transitionToListening();
+            
+            const textToSpeak = textBufferRef.current.trim();
+            if (textToSpeak) {
+               setStatus('speaking');
+               window.speechSynthesis.cancel(); // Cancel ongoing speech
+               
+               const utterance = new SpeechSynthesisUtterance(textToSpeak);
+               const voices = window.speechSynthesis.getVoices();
+               
+               // Smart Voice Selection: Look for "Network", "Premium", or "Online" voices which sound identical to Gemini/ElevenLabs
+               let selectedVoice = null;
+               
+               // 1st Priority: Google Network Voice (English)
+               selectedVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Google') && v.name.includes('Network'));
+               
+               // 2nd Priority: Any Cloud/Online/Premium Voice
+               if (!selectedVoice) {
+                 selectedVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Online') || v.name.includes('Premium') || !v.localService));
+               }
+               
+               // 3rd Priority: Any English Voice
+               if (!selectedVoice) {
+                 selectedVoice = voices.find(v => v.lang.startsWith('en'));
+               }
+               
+               if (selectedVoice) {
+                 utterance.voice = selectedVoice;
+               }
+               
+               utterance.volume = settingsRef.current.volume / 100;
+               utterance.rate = 1.05; // Slightly faster for teaching vibe
+               
+               utterance.onend = () => {
+                 if (isTurnCompleteRef.current) {
+                   transitionToListening();
+                 }
+               };
+               
+               utterance.onerror = (e) => {
+                 console.error("Speech Synthesis Error:", e);
+                 if (isTurnCompleteRef.current) transitionToListening();
+               };
+               
+               window.speechSynthesis.speak(utterance);
+            } else {
+               transitionToListening();
             }
+            
             textBufferRef.current = "";
           }
 
