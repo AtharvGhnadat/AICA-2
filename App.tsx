@@ -384,7 +384,7 @@ const App: React.FC = () => {
       });
 
       const session = await ai.live.connect({
-        model: 'models/gemini-2.0-flash-exp',
+        model: 'models/gemini-2.0-flash',
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } } },
