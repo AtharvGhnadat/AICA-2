@@ -433,9 +433,16 @@ const App: React.FC = () => {
                 if (ev.data.isSilent) {
                   if (userHasSpokenRef.current) {
                     consecutiveSilenceRef.current++;
-                    // ~20 chunks * 42ms = ~840ms of silence
-                    if (consecutiveSilenceRef.current === 20) {
+                    // ~35 chunks * 42ms = ~1.47s of silence
+                    if (consecutiveSilenceRef.current === 35) {
                       userHasSpokenRef.current = false;
+                      
+                      // Ignore micro-blips (e.g. mic bumping) less than 200ms
+                      if (accumulatedChunks.current.length < 5) {
+                         accumulatedChunks.current = [];
+                         return;
+                      }
+                      
                       setStatus('thinking');
                       
                       // Flush accumulated chunks into one base64 PCM string
