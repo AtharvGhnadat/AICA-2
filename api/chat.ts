@@ -37,7 +37,7 @@ export default async function handler(req: Request) {
     contents.push({ role: 'user', parts });
 
     const responseStream = await ai.models.generateContentStream({
-      model: 'gemini-2.5-flash-native-audio-preview-12-2025', 
+      model: 'gemini-live-2.5-flash-native-audio', 
       contents,
       config: {
         responseModalities: ["AUDIO"],
