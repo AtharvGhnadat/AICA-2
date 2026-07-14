@@ -107,14 +107,14 @@ const App: React.FC = () => {
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { visualContextRef.current = visualContext; }, [visualContext]);
 
+  const activeUtterancesRef = useRef(0);
+  const isStreamCompleteRef = useRef(false);
+
   // TTS Engine Setup
-  const speakText = useCallback((text: string, onEnd?: () => void) => {
-    if (!('speechSynthesis' in window)) {
-      if (onEnd) onEnd();
-      return;
-    }
+  const speakText = useCallback((text: string) => {
+    if (!('speechSynthesis' in window)) return;
+    
     const utterance = new SpeechSynthesisUtterance(text);
-    // Find a good voice
     const voices = window.speechSynthesis.getVoices();
     const preferredVoice = voices.find(v => v.name.includes('Google UK English Male') || v.name.includes('Male')) || voices[0];
     if (preferredVoice) utterance.voice = preferredVoice;
@@ -122,8 +122,20 @@ const App: React.FC = () => {
     utterance.volume = settingsRef.current.volume / 100;
     utterance.rate = 1.1; // Slightly faster for conversational pace
     
-    utterance.onend = () => { if (onEnd) onEnd(); };
-    utterance.onerror = () => { if (onEnd) onEnd(); };
+    activeUtterancesRef.current++;
+    
+    const checkEnd = () => {
+      activeUtterancesRef.current--;
+      if (activeUtterancesRef.current <= 0) {
+        activeUtterancesRef.current = 0;
+        if (isStreamCompleteRef.current) {
+          setStatus('listening');
+        }
+      }
+    };
+    
+    utterance.onend = checkEnd;
+    utterance.onerror = checkEnd;
     
     window.speechSynthesis.speak(utterance);
   }, []);
@@ -205,6 +217,8 @@ CRITICAL IDENTITY & LANGUAGE:
 
       setStatus('speaking');
       let fullResponseText = "";
+      let sentenceBuffer = "";
+      isStreamCompleteRef.current = false;
       
       for await (const chunk of responseStream) {
         if (chunk.functionCalls && chunk.functionCalls.length > 0) {
@@ -223,19 +237,39 @@ CRITICAL IDENTITY & LANGUAGE:
         
         if (chunk.text) {
           fullResponseText += chunk.text;
-          // In a fully optimized app, we'd split by sentences here and stream to TTS.
-          // For simplicity and stability, we'll collect the short 1-2 sentences and speak at the end.
+          sentenceBuffer += chunk.text;
+          
+          // Match sentence boundaries: . ? ! or Hindi/Marathi Purna Viram (।) or newline
+          const boundaryRegex = /([.?!।\n]+)(\s*)/;
+          const match = sentenceBuffer.match(boundaryRegex);
+          if (match) {
+            const splitIndex = match.index! + match[1].length;
+            const sentenceToSpeak = sentenceBuffer.substring(0, splitIndex).trim();
+            sentenceBuffer = sentenceBuffer.substring(splitIndex + match[2].length);
+            
+            if (sentenceToSpeak.length > 0) {
+               speakText(sentenceToSpeak.replace(/\[Showing image\]/g, ''));
+            }
+          }
         }
       }
+      
+      // Speak any remaining text that didn't end with punctuation
+      if (sentenceBuffer.trim().length > 0) {
+        speakText(sentenceBuffer.trim().replace(/\[Showing image\]/g, ''));
+      }
+
+      isStreamCompleteRef.current = true;
 
       if (fullResponseText.trim().length > 0) {
         chatHistoryRef.current = [...history, { role: 'model', parts: [{ text: fullResponseText }] }];
         // Keep history short to save tokens
         if (chatHistoryRef.current.length > 10) chatHistoryRef.current = chatHistoryRef.current.slice(chatHistoryRef.current.length - 10);
         
-        speakText(fullResponseText.replace(/\[Showing image\]/g, ''), () => {
+        // If it finished streaming but nothing is currently speaking, revert to listening
+        if (activeUtterancesRef.current === 0) {
           setStatus('listening');
-        });
+        }
       } else {
         setStatus('listening');
       }
