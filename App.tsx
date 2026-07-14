@@ -456,7 +456,8 @@ const App: React.FC = () => {
                         body: JSON.stringify({ audioData: finalPcmBase64, settings: settingsRef.current })
                       }).then(async (res) => {
                         if (!res.ok) {
-                           throw new Error("HTTP Backend Error: " + res.statusText);
+                           const errData = await res.json().catch(() => ({}));
+                           throw new Error("HTTP Backend Error: " + (errData.error || res.statusText));
                         }
                         const reader = res.body!.getReader();
                         const decoder = new TextDecoder();
