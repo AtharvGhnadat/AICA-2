@@ -70,6 +70,7 @@ export const visualContextService = {
 
         if (response.ok) {
           const data = await response.json();
+          console.log("Serper API Response:", data);
           const images = data.images;
 
           if (images && images.length > 0) {
@@ -107,6 +108,9 @@ export const visualContextService = {
             searchCache.set(trimmedQ, result);
             return result;
           }
+        } else {
+          const errorText = await response.text();
+          console.error(`Serper API failed with status ${response.status}:`, errorText);
         }
       } catch (err: any) {
         if (err.name === 'AbortError') {
@@ -172,35 +176,44 @@ export const visualContextService = {
         .trim();
       let rawTitle = query.charAt(0).toUpperCase() + query.slice(1);
       
-      const wikiTitle = encodeURIComponent(rawTitle.replace(/ /g, '_'));
-      const wikiResponse = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${wikiTitle}`, { signal: abortController.signal });
-      if (!wikiResponse.ok) return null;
+      const commonsUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&gsrlimit=3&prop=imageinfo&iiprop=url&format=json&origin=*`;
+      const searchResponse = await fetch(commonsUrl, { signal: abortController.signal });
+      if (!searchResponse.ok) return null;
       
-      const wikiData = await wikiResponse.json();
-      if (wikiData && wikiData.originalimage && wikiData.originalimage.source) {
-        // Preload wikipedia image
-        preloadImages([wikiData.originalimage.source]);
+      const searchData = await searchResponse.json();
+      if (searchData && searchData.query && searchData.query.pages) {
+        const pages = Object.values(searchData.query.pages) as any[];
+        if (pages.length > 0) {
+          // Get the first valid image URL
+          for (const page of pages) {
+            if (page.imageinfo && page.imageinfo.length > 0) {
+              const imgUrl = page.imageinfo[0].url;
+              
+              preloadImages([imgUrl]);
 
-        const result: Partial<VisualContext> = {
-          title: wikiData.title || rawTitle,
-          explanation: '', 
-          imageUrl: wikiData.originalimage.source,
-          thumbnailUrl: wikiData.thumbnail?.source || wikiData.originalimage.source,
-          searchQuery: query,
-          imageSource: 'fallback',
-          active: true
-        };
-        
-        if (searchCache.size >= 10) {
-          const firstKey = searchCache.keys().next().value;
-          if (firstKey) searchCache.delete(firstKey);
+              const result: Partial<VisualContext> = {
+                title: rawTitle,
+                explanation: '', 
+                imageUrl: imgUrl,
+                thumbnailUrl: imgUrl,
+                searchQuery: query,
+                imageSource: 'fallback',
+                active: true
+              };
+              
+              if (searchCache.size >= 10) {
+                const firstKey = searchCache.keys().next().value;
+                if (firstKey) searchCache.delete(firstKey);
+              }
+              searchCache.set(trimmedQ, result);
+              return result;
+            }
+          }
         }
-        searchCache.set(trimmedQ, result);
-        return result;
       }
     } catch (wikiErr: any) {
       if (wikiErr.name === 'AbortError') return null;
-      console.error("Wikipedia final fallback failed:", wikiErr);
+      console.error("Wikimedia Commons fallback failed:", wikiErr);
     }
     
     return null;

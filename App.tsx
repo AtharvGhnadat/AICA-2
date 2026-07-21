@@ -233,7 +233,9 @@ const App: React.FC = () => {
   const startThinkingTimeout = useCallback(() => {
     if (thinkingTimerRef.current) clearTimeout(thinkingTimerRef.current);
     thinkingTimerRef.current = setTimeout(() => {
-      if (statusRef.current === 'thinking') {
+      if (statusRef.current === 'thinking' && !isConnectedRef.current) {
+        // Only force-transition if we're stuck thinking AND not connected.
+        // If connected, Gemini will send turnComplete/audio to transition us.
         setStatus('listening');
       }
       thinkingTimerRef.current = null;
@@ -341,9 +343,9 @@ const App: React.FC = () => {
         throw new Error("Cannot access microphone.");
       }
 
-      // Disable echoCancellation to force Android to use the loud 'Media' volume stream instead of the quiet 'Voice Call' stream
+      // Enable echoCancellation so the mic doesn't pick up the AI's own voice and cause self-talk loops
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
       });
       streamRef.current = stream;
 
@@ -354,7 +356,7 @@ const App: React.FC = () => {
       const ai = new GoogleGenAI({ apiKey });
 
       const session = await ai.live.connect({
-        model: 'gemini-live-2.5-flash-native-audio',
+        model: 'gemini-3.1-flash-live-preview',
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: currentSettings.voiceName } } },
@@ -425,42 +427,15 @@ CORE BEHAVIORS:
               workletNode.port.onmessage = (ev: MessageEvent<any>) => {
                 if (!isConnectedRef.current) return;
 
-                if (ev.data.event === 'speech_start') {
-                  // User started speaking. Interrupt AI if it's currently speaking!
-                  if (statusRef.current === 'thinking' || statusRef.current === 'idle' || statusRef.current === 'speaking') {
-                    if (statusRef.current === 'speaking') {
-                      stopActiveAudio();
-                    }
-                    setStatus('listening');
-                    statusRef.current = 'listening';
-                  }
-                  return;
-                } else if (ev.data.event === 'speech_end') {
-                  // User finished speaking.
-                  if (statusRef.current === 'listening') {
-                    setStatus('thinking');
-                    statusRef.current = 'thinking';
-                    
-                    // The Live API will wait forever if we drop silence packets. 
-                    // We MUST send an explicit turnComplete signal so it generates a response.
-                    try {
-                      if (isConnectedRef.current && sessionRef.current) {
-                        sessionRef.current.send({ clientContent: { turnComplete: true } });
-                      }
-                    } catch (err) {
-                      console.error("Failed to send turnComplete:", err);
-                    }
-                  }
+                // Ignore client-side VAD events — the server has built-in VAD
+                // that handles turn detection automatically for gemini-3.1-flash-live-preview.
+                if (ev.data.event === 'speech_start' || ev.data.event === 'speech_end') {
                   return;
                 }
 
                 if (ev.data.type === 'audio') {
-                  if (isMutedRef.current || statusRef.current === 'speaking' || statusRef.current === 'thinking') {
-                    // Do NOT send any audio during silence/speaking/thinking.
-                    // Google's Live API stays perfectly connected without an active stream, 
-                    // and zero-filled packets actually trigger a hard server-side disconnect!
-                    return;
-                  }
+                  // Only skip if the user explicitly muted
+                  if (isMutedRef.current) return;
 
                   let dataToPush = ev.data.data as Float32Array;
                   micBuffer.push(dataToPush);
@@ -479,7 +454,7 @@ CORE BEHAVIORS:
                     
                     try {
                       if (isConnectedRef.current) {
-                        sessionRef.current?.sendRealtimeInput({ media: pcmBlob });
+                        sessionRef.current?.sendRealtimeInput({ audio: pcmBlob });
                       }
                     } catch (err) { }
 
@@ -506,26 +481,28 @@ CORE BEHAVIORS:
                   if (call.name === 'show_visual') {
                     const args = call.args as { topic: string };
                     if (args.topic) {
-                      // Fire the search in the background immediately
-                      triggerImageSearch(args.topic).catch(console.error).finally(() => {
+                      // Wait for search result before telling the AI if it worked
+                      triggerImageSearch(args.topic).then((result) => {
+                        try {
+                          sessionRef.current?.sendToolResponse({
+                            functionResponses: [{ 
+                              id: call.id, 
+                              name: call.name, 
+                              response: { 
+                                result: result ? {
+                                  status: "SUCCESS",
+                                  message: "The image is now displayed on the student's screen. Do NOT mention the image or say you are showing anything. Just continue explaining the topic naturally as a teacher."
+                                } : {
+                                  status: "ERROR",
+                                  message: "Failed to find an image for this topic. Apologize briefly to the student and continue explaining without the visual."
+                                }
+                              } 
+                            }]
+                          });
+                        } catch (e) {}
+                      }).catch(console.error).finally(() => {
                         toolCallInProgressRef.current = false;
                       });
-                      
-                      // Instantly tell the AI the image is ALREADY visible so it never narrates "I'm fetching an image"
-                      try {
-                        sessionRef.current?.sendToolResponse({
-                          functionResponses: [{ 
-                            id: call.id, 
-                            name: call.name, 
-                            response: { 
-                              result: {
-                                status: "SUCCESS",
-                                message: "The image is now displayed on the student's screen. Do NOT mention the image or say you are showing anything. Just continue explaining the topic naturally as a teacher."
-                              }
-                            } 
-                          }]
-                        });
-                      } catch (e) {}
                     } else {
                       toolCallInProgressRef.current = false;
                     }
@@ -625,6 +602,7 @@ CORE BEHAVIORS:
             }
           },
           onerror: (e: any) => {
+            console.error('[Live API] onerror:', e);
             setErrorMessage('Connection Error');
             setStatus('error');
             setIsConnected(false);
@@ -632,6 +610,8 @@ CORE BEHAVIORS:
             scheduleReconnect();
           },
           onclose: (e: any) => {
+            console.error('[Live API] onclose:', e);
+            console.error('[Live API] Close code:', e?.code, 'reason:', e?.reason);
             setIsConnected(false);
             sessionRef.current = null;
             if (statusRef.current !== 'error') {
@@ -730,12 +710,8 @@ CORE BEHAVIORS:
     // Dynamically inject the new name into the AI's brain without dropping the call
     if (newSettings.deviceName !== oldName && isConnected && sessionRef.current) {
       try {
-        sessionRef.current.sendClientContent({
-          turns: [{
-            role: 'user',
-            parts: [{ text: `SYSTEM OVERRIDE: The user just changed your name in the system settings! Forget your old name. Your NEW name is now strictly "${newSettings.deviceName}". Please immediately say a short greeting (in Marathi/English) introducing yourself with your new name to confirm you learned it! ALWAYS speak at an extremely fast, rapid-fire conversational pace.` }]
-          }],
-          turnComplete: true
+        sessionRef.current.sendRealtimeInput({
+          text: `The user just changed your name. Your NEW name is now "${newSettings.deviceName}". Say a short greeting with your new name.`
         });
       } catch (e) {
         console.error("Failed to inject new name", e);
