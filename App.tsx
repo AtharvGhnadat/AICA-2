@@ -481,26 +481,28 @@ CORE BEHAVIORS:
                   if (call.name === 'show_visual') {
                     const args = call.args as { topic: string };
                     if (args.topic) {
-                      // Fire the search in the background immediately
-                      triggerImageSearch(args.topic).catch(console.error).finally(() => {
+                      // Wait for search result before telling the AI if it worked
+                      triggerImageSearch(args.topic).then((result) => {
+                        try {
+                          sessionRef.current?.sendToolResponse({
+                            functionResponses: [{ 
+                              id: call.id, 
+                              name: call.name, 
+                              response: { 
+                                result: result ? {
+                                  status: "SUCCESS",
+                                  message: "The image is now displayed on the student's screen. Do NOT mention the image or say you are showing anything. Just continue explaining the topic naturally as a teacher."
+                                } : {
+                                  status: "ERROR",
+                                  message: "Failed to find an image for this topic. Apologize briefly to the student and continue explaining without the visual."
+                                }
+                              } 
+                            }]
+                          });
+                        } catch (e) {}
+                      }).catch(console.error).finally(() => {
                         toolCallInProgressRef.current = false;
                       });
-                      
-                      // Instantly tell the AI the image is ALREADY visible so it never narrates "I'm fetching an image"
-                      try {
-                        sessionRef.current?.sendToolResponse({
-                          functionResponses: [{ 
-                            id: call.id, 
-                            name: call.name, 
-                            response: { 
-                              result: {
-                                status: "SUCCESS",
-                                message: "The image is now displayed on the student's screen. Do NOT mention the image or say you are showing anything. Just continue explaining the topic naturally as a teacher."
-                              }
-                            } 
-                          }]
-                        });
-                      } catch (e) {}
                     } else {
                       toolCallInProgressRef.current = false;
                     }
